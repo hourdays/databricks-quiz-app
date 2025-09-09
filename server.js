@@ -218,7 +218,7 @@ function startQuestionPhase() {
 
 function endQuestion() {
   // Calculate scores
-  const correctAnswer = Math.random() < 0.5 ? 'nespresso' : 'echantons'; // Random for demo
+  const correctAnswer = 'echantons'; // Fixed correct answer
   console.log('Correct answer is:', correctAnswer);
   let correctPlayers = [];
   
