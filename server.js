@@ -212,6 +212,14 @@ io.on('connection', (socket) => {
       players: Array.from(gameState.players.values()).map(p => p.name)
     });
   });
+
+  socket.on('rejoin-admin-room', (data) => {
+    const { token, playerName } = data;
+    if (activeTokens.has(token) && playerName === 'hugues.journeau@databricks.com') {
+      socket.join('admin');
+      console.log(`Admin ${playerName} rejoined admin room with socket ${socket.id}`);
+    }
+  });
 });
 
 function startQuestionPhase() {

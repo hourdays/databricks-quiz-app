@@ -55,6 +55,13 @@
             exit;
         }
 
+        // Rejoin admin room if user is admin
+        const playerEmail = localStorage.getItem('playerEmail');
+        const isAdmin = playerEmail === 'hugues.journeau@databricks.com';
+        if (isAdmin) {
+            socket.emit('rejoin-admin-room', { token, playerName: playerEmail });
+        }
+
         // Handle game started (for both admin and players)
         socket.on('game-started', (data) => {
             questionNumber.textContent = data.question + 1;
