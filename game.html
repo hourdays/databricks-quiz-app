@@ -55,13 +55,8 @@
             exit;
         }
 
-        // Handle game started (for players)
+        // Handle game started (for both admin and players)
         socket.on('game-started', (data) => {
-            questionNumber.textContent = data.question + 1;
-        });
-
-        // Handle admin game started (for admin)
-        socket.on('admin-game-started', (data) => {
             questionNumber.textContent = data.question + 1;
         });
 
@@ -70,7 +65,7 @@
             questionNumber.textContent = data.question + 1;
         });
 
-        // Handle timer updates (for players)
+        // Handle timer updates (for both admin and players)
         socket.on('timer-update', (data) => {
             if (data.phase === 'photos') {
                 timer.textContent = data.timeLeft;
@@ -80,38 +75,26 @@
             }
         });
 
-        // Handle admin timer updates
-        socket.on('admin-timer-update', (data) => {
-            if (data.phase === 'photos') {
-                timer.textContent = data.timeLeft;
-                if (data.timeLeft <= 3) {
-                    timer.classList.add('warning');
+        // Handle phase change to question (for both admin and players)
+        socket.on('phase-changed', (data) => {
+            if (data.phase === 'question') {
+                // Check if user is admin
+                const playerEmail = localStorage.getItem('playerEmail');
+                const isAdmin = playerEmail === 'hugues.journeau@databricks.com';
+                
+                if (isAdmin) {
+                    // Admin goes to admin leaderboard after question phase
+                    window.location.href = 'admin-leaderboard.html';
+                } else {
+                    // Players go to question page
+                    window.location.href = 'question.html';
                 }
             }
         });
 
-        // Handle phase change to question (for players)
-        socket.on('phase-changed', (data) => {
-            if (data.phase === 'question') {
-                window.location.href = 'question.html';
-            }
-        });
-
-        // Handle admin phase change to question
-        socket.on('admin-phase-changed', (data) => {
-            if (data.phase === 'question') {
-                window.location.href = 'question.html';
-            }
-        });
-
-        // Handle game ended (for players)
+        // Handle game ended (for players only - admin doesn't get this event)
         socket.on('game-ended', (data) => {
             window.location.href = 'leaderboard.html';
-        });
-
-        // Handle admin game ended
-        socket.on('admin-game-ended', (data) => {
-            window.location.href = 'admin-leaderboard.html';
         });
 
 

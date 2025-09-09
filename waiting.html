@@ -178,6 +178,19 @@
             updatePlayersList(data.players);
         });
 
+        // Handle admin joined (for admin to see player updates)
+        socket.on('admin-joined', (data) => {
+            console.log('Admin joined:', data);
+            // Request current player count
+            socket.emit('request-player-count');
+        });
+
+        // Handle player count request response
+        socket.on('player-count-update', (data) => {
+            playerCount.textContent = data.playerCount;
+            updatePlayersList(data.players);
+        });
+
         // Handle game started
         socket.on('game-started', (data) => {
             window.location.href = 'game.html';

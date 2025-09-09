@@ -116,13 +116,13 @@ io.on('connection', (socket) => {
       gameState.photoTimeLeft = 10;
       
       // Start photo display phase - send to both admin and players
-      io.to('admin').emit('admin-game-started', { phase: 'photos', question: gameState.currentQuestion });
+      io.to('admin').emit('game-started', { phase: 'photos', question: gameState.currentQuestion });
       io.to('waiting-room').emit('game-started', { phase: 'photos', question: gameState.currentQuestion });
       
       // Start photo timer
       const photoTimer = setInterval(() => {
         gameState.photoTimeLeft--;
-        io.to('admin').emit('admin-timer-update', { 
+        io.to('admin').emit('timer-update', { 
           phase: 'photos', 
           timeLeft: gameState.photoTimeLeft 
         });
@@ -204,14 +204,22 @@ io.on('connection', (socket) => {
     console.log('Leaderboard requested, sending:', gameState.leaderboard);
     socket.emit('leaderboard-update', { leaderboard: gameState.leaderboard });
   });
+
+  socket.on('request-player-count', () => {
+    console.log('Player count requested');
+    socket.emit('player-count-update', {
+      playerCount: gameState.players.size,
+      players: Array.from(gameState.players.values()).map(p => p.name)
+    });
+  });
 });
 
 function startQuestionPhase() {
   gameState.currentPhase = 'question';
   gameState.questionTimeLeft = 10;
   
-  // Send different events to admin vs players
-  io.to('admin').emit('admin-phase-changed', { 
+  // Send same events to both admin and players
+  io.to('admin').emit('phase-changed', { 
     phase: 'question', 
     question: gameState.currentQuestion 
   });
@@ -223,7 +231,7 @@ function startQuestionPhase() {
   // Start question timer
   const questionTimer = setInterval(() => {
     gameState.questionTimeLeft--;
-    io.to('admin').emit('admin-timer-update', { 
+    io.to('admin').emit('timer-update', { 
       phase: 'question', 
       timeLeft: gameState.questionTimeLeft 
     });

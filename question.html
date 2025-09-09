@@ -102,24 +102,8 @@
             }, 1000);
         }
 
-        // Handle timer updates from server (backup for players)
+        // Handle timer updates from server (for both admin and players)
         socket.on('timer-update', (data) => {
-            if (data.phase === 'question') {
-                timeLeft = data.timeLeft;
-                timer.textContent = timeLeft;
-                
-                if (timeLeft <= 3) {
-                    timer.classList.add('warning');
-                }
-                
-                if (timeLeft <= 0 && !hasAnswered) {
-                    submitAnswer('timeout');
-                }
-            }
-        });
-
-        // Handle admin timer updates
-        socket.on('admin-timer-update', (data) => {
             if (data.phase === 'question') {
                 timeLeft = data.timeLeft;
                 timer.textContent = timeLeft;
