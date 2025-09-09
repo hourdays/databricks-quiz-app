@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz App - Leaderboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="leaderboard-card">
+            <div class="leaderboard-header">
+                <h1>🏆 Final Results</h1>
+                <p class="subtitle">Congratulations to all players!</p>
+            </div>
+            
+            <div class="leaderboard-content">
+                <div class="leaderboard-list" id="leaderboardList">
+                    <!-- Leaderboard entries will be added here dynamically -->
+                </div>
+                
+                <div class="game-actions">
+                    <button id="playAgainBtn" class="btn btn-primary">
+                        Play Again
+                    </button>
+                    <button id="newGameBtn" class="btn btn-secondary">
+                        New Game
+                    </button>
+                </div>
+            </div>
+            
+            <div class="loading-message" id="loadingMessage">
+                <div class="spinner"></div>
+                <p>Calculating results...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const leaderboardList = document.getElementById('leaderboardList');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const playAgainBtn = document.getElementById('playAgainBtn');
+        const newGameBtn = document.getElementById('newGameBtn');
+        
+        let hasReceivedData = false;
+
+        // Check for valid token
+        const token = localStorage.getItem('quizToken');
+        if (!token) {
+            window.location.href = '/';
+            exit;
+        }
+
+        // Handle game ended with leaderboard data
+        socket.on('game-ended', (data) => {
+            console.log('Game ended, leaderboard data:', data.leaderboard);
+            displayLeaderboard(data.leaderboard);
+        });
+
+        // Also listen for any leaderboard updates
+        socket.on('leaderboard-update', (data) => {
+            console.log('Leaderboard update received:', data);
+            displayLeaderboard(data.leaderboard || data);
+        });
+
+        // Handle next question with leaderboard data
+        socket.on('next-question', (data) => {
+            if (data.leaderboard) {
+                displayLeaderboard(data.leaderboard);
+            }
+        });
+
+        // Handle connection errors
+        socket.on('connect_error', () => {
+            alert('Connection lost. Please refresh the page.');
+        });
+
+        // Handle game reset
+        socket.on('game-reset', () => {
+            // Clear all stored data
+            localStorage.removeItem('quizToken');
+            localStorage.removeItem('playerEmail');
+            
+            // Redirect to landing page
+            window.location.href = '/';
+        });
+
+        function displayLeaderboard(leaderboard) {
+            console.log('Displaying leaderboard:', leaderboard);
+            
+            // Mark that we've received data
+            hasReceivedData = true;
+            
+            loadingMessage.classList.add('hidden');
+            
+            if (!leaderboard || leaderboard.length === 0) {
+                leaderboardList.innerHTML = `
+                    <div class="no-results">
+                        <p>No results available yet.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            leaderboardList.innerHTML = '';
+            
+            leaderboard.forEach((player, index) => {
+                const position = index + 1;
+                const medal = getMedal(position);
+                const isCurrentPlayer = player.name === localStorage.getItem('playerEmail');
+                
+                const playerElement = document.createElement('div');
+                playerElement.className = `leaderboard-item ${isCurrentPlayer ? 'current-player' : ''}`;
+                
+                playerElement.innerHTML = `
+                    <div class="position">
+                        <span class="medal">${medal}</span>
+                        <span class="position-number">${position}</span>
+                    </div>
+                    <div class="player-info">
+                        <div class="player-name">${player.name}</div>
+                        <div class="player-stats">
+                            <span class="score">${player.score} points</span>
+                            <span class="answer-time">${player.answerTime}s</span>
+                        </div>
+                    </div>
+                `;
+                
+                leaderboardList.appendChild(playerElement);
+            });
+        }
+
+        function getMedal(position) {
+            switch (position) {
+                case 1: return '🥇';
+                case 2: return '🥈';
+                case 3: return '🥉';
+                default: return '🏅';
+            }
+        }
+
+        // Play again button
+        playAgainBtn.addEventListener('click', () => {
+            window.location.href = 'waiting.html';
+        });
+
+        // New game button
+        newGameBtn.addEventListener('click', () => {
+            // Clear all stored data
+            localStorage.removeItem('quizToken');
+            localStorage.removeItem('playerEmail');
+            
+            // Notify server to reset game state
+            socket.emit('reset-game');
+            
+            // Redirect to landing page
+            window.location.href = '/';
+        });
+
+        // Initialize
+        window.addEventListener('load', () => {
+            // Show loading initially
+            loadingMessage.classList.remove('hidden');
+            
+            // If we have leaderboard data in URL params, use it
+            const urlParams = new URLSearchParams(window.location.search);
+            const leaderboardData = urlParams.get('leaderboard');
+            if (leaderboardData) {
+                try {
+                    const leaderboard = JSON.parse(decodeURIComponent(leaderboardData));
+                    displayLeaderboard(leaderboard);
+                } catch (error) {
+                    console.error('Error parsing leaderboard data:', error);
+                }
+            } else {
+                // Request current leaderboard from server
+                socket.emit('request-leaderboard');
+                
+                // Only show empty state if no data arrives within 3 seconds
+                setTimeout(() => {
+                    if (!hasReceivedData) {
+                        displayLeaderboard([]);
+                    }
+                }, 3000);
+            }
+        });
+    </script>
+</body>
+</html>

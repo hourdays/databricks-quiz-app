@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Images</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .image-test { margin: 20px 0; }
+        img { max-width: 300px; height: auto; border: 2px solid #ccc; margin: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Image Test Page</h1>
+    
+    <div class="image-test">
+        <h2>Nespresso Image</h2>
+        <img src="/public/images/nespresso.png" alt="Nespresso" onload="console.log('Nespresso loaded')" onerror="console.log('Nespresso failed')">
+    </div>
+    
+    <div class="image-test">
+        <h2>Echantons Image</h2>
+        <img src="/public/images/echantons.png" alt="Echantons" onload="console.log('Echantons loaded')" onerror="console.log('Echantons failed')">
+    </div>
+    
+    <div class="image-test">
+        <h2>Alternative Paths</h2>
+        <img src="/images/nespresso.png" alt="Nespresso Alt" onload="console.log('Nespresso Alt loaded')" onerror="console.log('Nespresso Alt failed')">
+        <img src="/images/echantons.png" alt="Echantons Alt" onload="console.log('Echantons Alt loaded')" onerror="console.log('Echantons Alt failed')">
+    </div>
+    
+    <script>
+        console.log('Test page loaded');
+        console.log('Current location:', window.location.href);
+    </script>
+</body>
+</html>

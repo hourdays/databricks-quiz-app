@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz App - Game</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="game-card">
+            <div class="welcome-message" id="welcomeMessage">
+                <h2>Welcome, <span id="playerName"></span>! 👋</h2>
+            </div>
+            
+            <div class="game-header">
+                <h1>📸 Look at the Photos</h1>
+                <div class="timer-display">
+                    <span class="timer-number" id="timer">10</span>
+                    <span class="timer-label">seconds</span>
+                </div>
+            </div>
+            
+            <div class="photos-container" id="photosContainer">
+                <div class="photo-wrapper">
+                    <img src="/public/images/nespresso.png" alt="Nespresso" class="photo-image">
+                </div>
+                <div class="photo-wrapper">
+                    <img src="/public/images/echantons.png" alt="Echantons" class="photo-image">
+                </div>
+            </div>
+            
+            <div class="game-info">
+                <div class="question-counter">
+                    Question <span id="questionNumber">1</span> of 1
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const timer = document.getElementById('timer');
+        const photosContainer = document.getElementById('photosContainer');
+        const questionNumber = document.getElementById('questionNumber');
+        const welcomeMessage = document.getElementById('welcomeMessage');
+        const playerNameSpan = document.getElementById('playerName');
+
+        // Check for valid token
+        const token = localStorage.getItem('quizToken');
+        if (!token) {
+            window.location.href = '/';
+            exit;
+        }
+
+        // Handle game started
+        socket.on('game-started', (data) => {
+            questionNumber.textContent = data.question + 1;
+        });
+
+        // Handle next question
+        socket.on('next-question', (data) => {
+            questionNumber.textContent = data.question + 1;
+        });
+
+        // Handle timer updates
+        socket.on('timer-update', (data) => {
+            if (data.phase === 'photos') {
+                timer.textContent = data.timeLeft;
+                if (data.timeLeft <= 3) {
+                    timer.classList.add('warning');
+                }
+            }
+        });
+
+        // Handle phase change to question
+        socket.on('phase-changed', (data) => {
+            if (data.phase === 'question') {
+                window.location.href = 'question.html';
+            }
+        });
+
+        // Handle game ended
+        socket.on('game-ended', (data) => {
+            window.location.href = 'leaderboard.html';
+        });
+
+
+        // Handle connection errors
+        socket.on('connect_error', () => {
+            alert('Connection lost. Please refresh the page.');
+        });
+
+        // Handle game reset
+        socket.on('game-reset', () => {
+            // Clear all stored data
+            localStorage.removeItem('quizToken');
+            localStorage.removeItem('playerEmail');
+            
+            // Redirect to landing page
+            window.location.href = '/';
+        });
+
+        // Initialize
+        window.addEventListener('load', () => {
+            // Show welcome message
+            const playerEmail = localStorage.getItem('playerEmail');
+            if (playerEmail) {
+                const displayName = extractDisplayName(playerEmail);
+                playerNameSpan.textContent = displayName;
+                welcomeMessage.classList.remove('hidden');
+            }
+        });
+
+        function extractDisplayName(email) {
+            if (!email || email === 'Anonymous') return 'Anonymous';
+            
+            const beforeAt = email.split('@')[0];
+            const beforeFirstDot = beforeAt.split('.')[0];
+            
+            // Capitalize first letter
+            return beforeFirstDot.charAt(0).toUpperCase() + beforeFirstDot.slice(1);
+        }
+    </script>
+</body>
+</html>

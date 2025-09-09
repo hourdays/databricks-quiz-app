@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz App - Question</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="question-card">
+            <div class="welcome-message" id="welcomeMessage">
+                <h2>Welcome, <span id="playerName"></span>! 👋</h2>
+            </div>
+            
+            <div class="question-header">
+                <h1>🤔 Which one is the real photo?</h1>
+                <div class="timer-display">
+                    <span class="timer-number" id="timer">10</span>
+                    <span class="timer-label">seconds</span>
+                </div>
+            </div>
+            
+            <div class="question-content">
+                <div class="question-text">
+                    <p>Look at the photos you just saw and choose which one is the real photo:</p>
+                </div>
+                
+                <form id="answerForm" class="answer-form">
+                    <div class="radio-group">
+                        <label class="radio-option">
+                            <input type="radio" name="answer" value="nespresso">
+                            <span class="radio-custom"></span>
+                            <span class="radio-text">👍 Nespresso</span>
+                        </label>
+                        
+                        <label class="radio-option">
+                            <input type="radio" name="answer" value="echantons">
+                            <span class="radio-custom"></span>
+                            <span class="radio-text">👌 Echantons</span>
+                        </label>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-large" id="submitBtn" disabled>
+                        Submit Answer
+                    </button>
+                </form>
+            </div>
+            
+            <div class="answer-status" id="answerStatus">
+                <div class="status-message">
+                    <span class="status-icon">⏳</span>
+                    <span>Choose your answer...</span>
+                </div>
+            </div>
+            
+            <div class="game-info">
+                <div class="question-counter">
+                    Question <span id="questionNumber">1</span> of 1
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const timer = document.getElementById('timer');
+        const answerForm = document.getElementById('answerForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const answerStatus = document.getElementById('answerStatus');
+        const questionNumber = document.getElementById('questionNumber');
+        const radioInputs = document.querySelectorAll('input[name="answer"]');
+        const welcomeMessage = document.getElementById('welcomeMessage');
+        const playerNameSpan = document.getElementById('playerName');
+
+        // Check for valid token
+        const token = localStorage.getItem('quizToken');
+        if (!token) {
+            window.location.href = '/';
+            exit;
+        }
+
+        let timeLeft = 10;
+        let hasAnswered = false;
+        let questionTimer;
+
+        // Start countdown immediately when page loads
+        function startQuestionTimer() {
+            questionTimer = setInterval(() => {
+                timeLeft--;
+                timer.textContent = timeLeft;
+                
+                if (timeLeft <= 3) {
+                    timer.classList.add('warning');
+                }
+                
+                if (timeLeft <= 0 && !hasAnswered) {
+                    submitAnswer('timeout');
+                    clearInterval(questionTimer);
+                }
+            }, 1000);
+        }
+
+        // Handle timer updates from server (backup)
+        socket.on('timer-update', (data) => {
+            if (data.phase === 'question') {
+                timeLeft = data.timeLeft;
+                timer.textContent = timeLeft;
+                
+                if (timeLeft <= 3) {
+                    timer.classList.add('warning');
+                }
+                
+                if (timeLeft <= 0 && !hasAnswered) {
+                    submitAnswer('timeout');
+                }
+            }
+        });
+
+        // Handle answer submitted
+        socket.on('answer-submitted', (data) => {
+            if (data.playerId === socket.id) {
+                hasAnswered = true;
+                clearInterval(questionTimer);
+                disableForm();
+                answerStatus.innerHTML = `
+                    <div class="status-message success">
+                        <span class="status-icon">✅</span>
+                        <span>Answer submitted! Waiting for results...</span>
+                    </div>
+                `;
+            }
+        });
+
+        // Handle phase change
+        socket.on('phase-changed', (data) => {
+            if (data.phase === 'photos') {
+                window.location.href = 'game.html';
+            }
+        });
+
+        // Handle next question
+        socket.on('next-question', (data) => {
+            questionNumber.textContent = data.question + 1;
+            resetQuestion();
+        });
+
+        // Handle game ended
+        socket.on('game-ended', (data) => {
+            window.location.href = 'leaderboard.html';
+        });
+
+        // Handle form submission
+        answerForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            console.log('Form submitted, hasAnswered:', hasAnswered);
+            if (!hasAnswered) {
+                const selectedAnswer = document.querySelector('input[name="answer"]:checked');
+                console.log('Selected answer:', selectedAnswer?.value);
+                if (selectedAnswer) {
+                    submitAnswer(selectedAnswer.value);
+                } else {
+                    console.log('No answer selected');
+                }
+            }
+        });
+
+        // Handle radio button changes
+        radioInputs.forEach(radio => {
+            radio.addEventListener('change', () => {
+                console.log('Radio button changed:', radio.value, 'checked:', radio.checked);
+                if (radio.checked) {
+                    submitBtn.disabled = false;
+                }
+            });
+        });
+
+        function submitAnswer(answer) {
+            if (!hasAnswered) {
+                hasAnswered = true;
+                clearInterval(questionTimer);
+                disableForm();
+                const playerEmail = localStorage.getItem('playerEmail');
+                console.log('Submitting answer:', answer, 'timeLeft:', timeLeft, 'playerEmail:', playerEmail);
+                socket.emit('submit-answer', { 
+                    answer, 
+                    timeLeft: timeLeft,
+                    playerEmail: playerEmail
+                });
+            } else {
+                console.log('Already answered, ignoring submission');
+            }
+        }
+
+        function disableForm() {
+            // Disable all radio buttons
+            radioInputs.forEach(radio => {
+                radio.disabled = true;
+            });
+            
+            // Disable submit button
+            submitBtn.disabled = true;
+            
+            // Add disabled styling
+            answerForm.classList.add('disabled');
+        }
+
+        function resetQuestion() {
+            hasAnswered = false;
+            timeLeft = 10;
+            timer.textContent = timeLeft;
+            timer.classList.remove('warning');
+            submitBtn.disabled = true;
+            answerForm.reset();
+            answerForm.classList.remove('disabled');
+            
+            // Re-enable radio buttons
+            radioInputs.forEach(radio => {
+                radio.disabled = false;
+            });
+            
+            answerStatus.innerHTML = `
+                <div class="status-message">
+                    <span class="status-icon">⏳</span>
+                    <span>Choose your answer...</span>
+                </div>
+            `;
+        }
+
+        // Handle connection errors
+        socket.on('connect_error', () => {
+            alert('Connection lost. Please refresh the page.');
+        });
+
+        // Handle game reset
+        socket.on('game-reset', () => {
+            // Clear all stored data
+            localStorage.removeItem('quizToken');
+            localStorage.removeItem('playerEmail');
+            
+            // Redirect to landing page
+            window.location.href = '/';
+        });
+
+        // Initialize
+        window.addEventListener('load', () => {
+            // Show welcome message
+            const playerEmail = localStorage.getItem('playerEmail');
+            if (playerEmail) {
+                const displayName = extractDisplayName(playerEmail);
+                playerNameSpan.textContent = displayName;
+                welcomeMessage.classList.remove('hidden');
+            }
+            
+            // Get current question number from URL or default to 1
+            const urlParams = new URLSearchParams(window.location.search);
+            const question = urlParams.get('q') || 1;
+            questionNumber.textContent = question;
+            
+            // Start the countdown immediately
+            startQuestionTimer();
+        });
+
+        function extractDisplayName(email) {
+            if (!email || email === 'Anonymous') return 'Anonymous';
+            
+            const beforeAt = email.split('@')[0];
+            const beforeFirstDot = beforeAt.split('.')[0];
+            
+            // Capitalize first letter
+            return beforeFirstDot.charAt(0).toUpperCase() + beforeFirstDot.slice(1);
+        }
+    </script>
+</body>
+</html>

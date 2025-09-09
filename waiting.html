@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz App - Waiting Room</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="waiting-card">
+            <h1>🕐 Waiting Room</h1>
+            <p class="subtitle">Enter your 6-digit token to join the game</p>
+            <div id="welcomeMessage" class="welcome-message hidden">
+                <h2>Welcome, <span id="playerName"></span>! 👋</h2>
+            </div>
+            
+            <div id="tokenInputSection" class="token-input-section">
+                <form id="tokenForm" class="form">
+                    <div class="input-group">
+                        <input 
+                            type="text" 
+                            id="tokenInput" 
+                            placeholder="Enter 6-digit token"
+                            maxlength="6"
+                            pattern="[0-9]{6}"
+                            required
+                        >
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        Join Game
+                    </button>
+                </form>
+                <div class="error-message hidden" id="tokenError"></div>
+            </div>
+            
+            <div id="gameSection" class="game-section hidden">
+                <div class="player-info">
+                    <div class="player-count">
+                        <span class="count-number" id="playerCount">0</span>
+                        <span class="count-label">players connected</span>
+                    </div>
+                    
+                    <div class="players-list" id="playersList">
+                        <!-- Players will be added here dynamically -->
+                    </div>
+                </div>
+            </div>
+            
+                <div class="admin-controls" id="adminControls">
+                    <button id="startGameBtn" class="btn btn-primary btn-large">
+                        Start Game
+                    </button>
+                    <p class="admin-note">Only admin can start the game</p>
+                </div>
+                
+                <div class="game-status" id="gameStatus">
+                    <div class="status-message">
+                        <span class="status-icon">⏳</span>
+                        <span>Waiting for admin to start the game...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="error-message hidden" id="errorMessage"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const tokenInputSection = document.getElementById('tokenInputSection');
+        const gameSection = document.getElementById('gameSection');
+        const tokenForm = document.getElementById('tokenForm');
+        const tokenInput = document.getElementById('tokenInput');
+        const tokenError = document.getElementById('tokenError');
+        const playerCount = document.getElementById('playerCount');
+        const playersList = document.getElementById('playersList');
+        const adminControls = document.getElementById('adminControls');
+        const gameStatus = document.getElementById('gameStatus');
+        const startGameBtn = document.getElementById('startGameBtn');
+        const errorMessage = document.getElementById('errorMessage');
+        const welcomeMessage = document.getElementById('welcomeMessage');
+        const playerNameSpan = document.getElementById('playerName');
+
+        let currentToken = null;
+        let playerName = 'Anonymous';
+
+        // Check if user already has a token from landing page
+        const existingToken = localStorage.getItem('quizToken');
+        if (existingToken) {
+            currentToken = existingToken;
+            playerName = localStorage.getItem('playerEmail') || 'Anonymous';
+            joinGame(existingToken, playerName);
+        }
+
+        // Handle token form submission
+        tokenForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const token = tokenInput.value.trim();
+            
+            if (token.length !== 6 || !/^\d{6}$/.test(token)) {
+                showTokenError('Please enter a valid 6-digit token');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/verify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ token })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.valid) {
+                        currentToken = token;
+                        playerName = prompt('Enter your name:', 'Anonymous') || 'Anonymous';
+                        joinGame(token, playerName);
+                    } else {
+                        showTokenError('Invalid token. Please check and try again.');
+                    }
+                } else {
+                    showTokenError('Failed to verify token. Please try again.');
+                }
+            } catch (error) {
+                showTokenError('Network error. Please check your connection.');
+            }
+        });
+
+        function joinGame(token, name) {
+            // Store token and name
+            localStorage.setItem('quizToken', token);
+            localStorage.setItem('playerEmail', name);
+            
+            // Extract name from email (before @ and before first dot)
+            const displayName = extractDisplayName(name);
+            playerNameSpan.textContent = displayName;
+            
+            // Hide token input, show game section
+            tokenInputSection.classList.add('hidden');
+            gameSection.classList.remove('hidden');
+            welcomeMessage.classList.remove('hidden');
+            
+            // Show/hide admin controls based on email
+            const isAdmin = name === 'hugues.journeau@databricks.com';
+            if (isAdmin) {
+                adminControls.classList.remove('hidden');
+            } else {
+                adminControls.classList.add('hidden');
+            }
+            
+            // Join waiting room
+            socket.emit('join-waiting', { token, playerName: name });
+        }
+
+        function extractDisplayName(email) {
+            if (!email || email === 'Anonymous') return 'Anonymous';
+            
+            const beforeAt = email.split('@')[0];
+            const beforeFirstDot = beforeAt.split('.')[0];
+            
+            // Capitalize first letter
+            return beforeFirstDot.charAt(0).toUpperCase() + beforeFirstDot.slice(1);
+        }
+
+        // Handle player joined
+        socket.on('player-joined', (data) => {
+            playerCount.textContent = data.playerCount;
+            updatePlayersList(data.players);
+        });
+
+        // Handle player left
+        socket.on('player-left', (data) => {
+            playerCount.textContent = data.playerCount;
+            updatePlayersList(data.players);
+        });
+
+        // Handle game started
+        socket.on('game-started', (data) => {
+            window.location.href = 'game.html';
+        });
+
+        // Handle connection errors
+        socket.on('connect_error', () => {
+            showError('Connection failed. Please refresh the page.');
+        });
+
+        // Handle game reset
+        socket.on('game-reset', () => {
+            // Clear all stored data
+            localStorage.removeItem('quizToken');
+            localStorage.removeItem('playerEmail');
+            
+            // Redirect to landing page
+            window.location.href = '/';
+        });
+
+        // Start game button
+        startGameBtn.addEventListener('click', () => {
+            if (currentToken) {
+                socket.emit('start-game', { 
+                    token: currentToken, 
+                    playerEmail: playerName 
+                });
+            }
+        });
+
+        // Handle start game error
+        socket.on('start-game-error', (data) => {
+            showError(data.message);
+        });
+
+        function updatePlayersList(players) {
+            playersList.innerHTML = '';
+            players.forEach(player => {
+                const playerElement = document.createElement('div');
+                const isCurrentPlayer = player === playerName;
+                playerElement.className = `player-item ${isCurrentPlayer ? 'current-player' : ''}`;
+                playerElement.textContent = player;
+                playersList.appendChild(playerElement);
+            });
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+        }
+
+        function showTokenError(message) {
+            tokenError.textContent = message;
+            tokenError.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz App - Landing</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="landing-card">
+            <h1>🎯 Quiz Challenge</h1>
+            <p class="subtitle">Enter your email to get started</p>
+            
+            <form id="emailForm" class="form">
+                <div class="input-group">
+                    <input 
+                        type="email" 
+                        id="emailInput" 
+                        placeholder="Enter your email address"
+                        required
+                    >
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    Get Access Token
+                </button>
+            </form>
+            
+            <div id="tokenDisplay" class="token-display hidden">
+                <p>Your 6-digit access token:</p>
+                <div class="token-box">
+                    <span id="tokenValue" class="token-number"></span>
+                    <button id="copyToken" class="btn btn-small">Copy</button>
+                </div>
+                <p class="token-instruction">Enter this token in the waiting room to join the game</p>
+                <a href="waiting.html" class="btn btn-success">
+                    Go to Waiting Room
+                </a>
+            </div>
+            
+            <div id="errorMessage" class="error-message hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        const emailForm = document.getElementById('emailForm');
+        const emailInput = document.getElementById('emailInput');
+        const tokenDisplay = document.getElementById('tokenDisplay');
+        const tokenValue = document.getElementById('tokenValue');
+        const copyToken = document.getElementById('copyToken');
+        const errorMessage = document.getElementById('errorMessage');
+
+        emailForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = emailInput.value.trim();
+            if (!email) return;
+            
+            try {
+                const response = await fetch('/api/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const token = data.token;
+                    
+                    // Store token in localStorage
+                    localStorage.setItem('quizToken', token);
+                    localStorage.setItem('playerEmail', email);
+                    
+                    // Display token
+                    tokenValue.textContent = token;
+                    tokenDisplay.classList.remove('hidden');
+                    emailForm.classList.add('hidden');
+                    hideError();
+                } else {
+                    showError('Failed to generate token. Please try again.');
+                }
+            } catch (error) {
+                showError('Network error. Please check your connection.');
+            }
+        });
+
+        copyToken.addEventListener('click', () => {
+            navigator.clipboard.writeText(tokenValue.textContent).then(() => {
+                copyToken.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyToken.textContent = 'Copy';
+                }, 2000);
+            });
+        });
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+        }
+
+        function hideError() {
+            errorMessage.classList.add('hidden');
+        }
+
+        // Check if user already has a token
+        window.addEventListener('load', () => {
+            const existingToken = localStorage.getItem('quizToken');
+            if (existingToken) {
+                tokenValue.textContent = existingToken;
+                tokenDisplay.classList.remove('hidden');
+                emailForm.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
