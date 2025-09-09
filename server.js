@@ -3,6 +3,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { DBSQLClient } = require('@databricks/sql');
 
 const app = express();
 const server = http.createServer(app);
@@ -21,6 +22,28 @@ const io = socketIo(server, {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// Databricks configuration
+const databricksConfig = {
+  serverHostname: process.env.DATABRICKS_SERVER_HOSTNAME || 'your-databricks-hostname',
+  httpPath: process.env.DATABRICKS_HTTP_PATH || '/sql/1.0/warehouses/your-warehouse-id',
+  accessToken: process.env.DATABRICKS_ACCESS_TOKEN || 'your-access-token',
+  catalog: process.env.DATABRICKS_CATALOG || 'hive_metastore',
+  schema: process.env.DATABRICKS_SCHEMA || 'default',
+  table: process.env.DATABRICKS_TABLE || 'employees'
+};
+
+// Databricks client
+const databricksClient = new DBSQLClient();
+
+// Mock employee database for fallback/development
+const mockEmployeeDatabase = {
+  'hugues.journeau@databricks.com': 'janvier 2020',
+  'hjourneau@gmail.com': 'mars 2021',
+  'marc.bonnet@databricks.com': 'juin 2025',
+  'paul.r@dbks.fr': 'septembre 2023',
+  // Add more employees as needed
+};
 
 // Store active tokens and game state
 const activeTokens = new Set();
@@ -41,6 +64,88 @@ const gameState = {
 // Global timer variables
 let photoTimer = null;
 let questionTimer = null;
+
+// Function to validate employee start month/year against Databricks table
+async function validateEmployeeStartMonthYear(email, monthYear) {
+  console.log(`Validating employee: ${email} with start month/year: ${monthYear}`);
+  
+  try {
+    // Connect to Databricks
+    const connection = await databricksClient.connect({
+      host: databricksConfig.serverHostname,
+      path: databricksConfig.httpPath,
+      token: databricksConfig.accessToken
+    });
+
+    // Create a session
+    const session = await connection.openSession();
+
+    // Query to check if employee exists with matching month/year
+    const query = `
+      SELECT COUNT(*) as count 
+      FROM ${databricksConfig.catalog}.${databricksConfig.schema}.${databricksConfig.table}
+      WHERE LOWER(email) = LOWER('${email}') AND LOWER(databricks_arrival_month_year) = LOWER('${monthYear}')
+    `;
+    
+    const queryResult = await session.executeStatement(query);
+
+    const results = await queryResult.fetchAll();
+    const count = results[0].count;
+    
+    await queryResult.close();
+    await session.close();
+    await connection.close();
+    
+    if (count > 0) {
+      console.log(`Validation successful for ${email}`);
+      return true;
+    } else {
+      console.log(`Employee ${email} with month/year ${monthYear} not found in Databricks table`);
+      return false;
+    }
+    
+  } catch (error) {
+    console.error('Databricks validation error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState
+    });
+    
+    // Fallback to mock database if Databricks is not configured
+    if (error.message.includes('your-databricks-hostname') || 
+        error.message.includes('your-access-token') ||
+        error.message.includes('ENOTFOUND') ||
+        error.message.includes('ECONNREFUSED')) {
+      console.log('Databricks not configured, falling back to mock database');
+      return validateWithMockDatabase(email, monthYear);
+    }
+    
+    return false;
+  }
+}
+
+// Fallback function using mock database
+function validateWithMockDatabase(email, monthYear) {
+  console.log(`Using mock database for validation: ${email} with ${monthYear}`);
+  
+  // Check if employee exists in our mock database
+  if (!mockEmployeeDatabase[email]) {
+    console.log(`Employee ${email} not found in mock database`);
+    return false;
+  }
+  
+  // Check if the provided month/year matches the recorded month/year
+  const recordedMonthYear = mockEmployeeDatabase[email];
+  if (monthYear.toLowerCase() !== recordedMonthYear.toLowerCase()) {
+    console.log(`Month/year mismatch for ${email}: provided ${monthYear}, expected ${recordedMonthYear}`);
+    return false;
+  }
+  
+  console.log(`Mock validation successful for ${email}`);
+  return true;
+}
 
 // Serve static files
 app.use(express.static(path.join(__dirname)));
@@ -67,18 +172,139 @@ app.get('/leaderboard', (req, res) => {
   res.sendFile(path.join(__dirname, 'leaderboard.html'));
 });
 
-// Generate 6-digit access token
-app.post('/api/token', (req, res) => {
+// Step 1: Validate email and generate temporary token
+app.post('/api/validate-email', async (req, res) => {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'Email is required' });
   }
   
-  // Generate 6-digit token
-  const token = Math.floor(100000 + Math.random() * 900000).toString();
-  activeTokens.add(token);
+  try {
+    // Check if employee exists in Databricks table
+    const connection = await databricksClient.connect({
+      host: databricksConfig.serverHostname,
+      path: databricksConfig.httpPath,
+      token: databricksConfig.accessToken
+    });
+
+    const session = await connection.openSession();
+
+    const query = `
+      SELECT COUNT(*) as count 
+      FROM ${databricksConfig.catalog}.${databricksConfig.schema}.${databricksConfig.table}
+      WHERE LOWER(email) = LOWER('${email}')
+    `;
+    
+    const queryResult = await session.executeStatement(query);
+
+    const results = await queryResult.fetchAll();
+    const count = results[0].count;
+    
+    await queryResult.close();
+    await session.close();
+    await connection.close();
+    
+    if (count === 0) {
+      // Fallback to mock database if not found in Databricks
+      if (!mockEmployeeDatabase[email]) {
+        return res.status(403).json({ 
+          error: 'Email not found in our records. Please contact support.' 
+        });
+      }
+    }
+    
+    // Generate temporary token for step 2
+    const tempToken = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Store temporary data
+    if (!global.tempUserStore) {
+      global.tempUserStore = new Map();
+    }
+    global.tempUserStore.set(tempToken, { email });
+    
+    res.json({ tempToken, message: 'Email validated. Please proceed to step 2.' });
+    
+  } catch (error) {
+    console.error('Email validation error:', error);
+    
+    // Fallback to mock database if Databricks is not configured
+    if (error.message.includes('your-databricks-hostname') || 
+        error.message.includes('your-access-token') ||
+        error.message.includes('ENOTFOUND')) {
+      console.log('Databricks not configured, using mock database for email validation');
+      
+      if (!mockEmployeeDatabase[email]) {
+        return res.status(403).json({ 
+          error: 'Email not found in our records. Please contact support.' 
+        });
+      }
+      
+      // Generate temporary token for step 2
+      const tempToken = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      // Store temporary data
+      if (!global.tempUserStore) {
+        global.tempUserStore = new Map();
+      }
+      global.tempUserStore.set(tempToken, { email });
+      
+      res.json({ tempToken, message: 'Email validated. Please proceed to step 2.' });
+    } else {
+      res.status(500).json({ error: 'Internal server error during email validation' });
+    }
+  }
+});
+
+// Step 2: Validate month/year and generate final token
+app.post('/api/token', async (req, res) => {
+  const { tempToken, monthYear } = req.body;
+  if (!tempToken || !monthYear) {
+    return res.status(400).json({ error: 'Temporary token and month/year are required' });
+  }
   
-  res.json({ token });
+  // Get email from temporary store
+  if (!global.tempUserStore || !global.tempUserStore.has(tempToken)) {
+    return res.status(400).json({ error: 'Invalid or expired temporary token' });
+  }
+  
+  const { email } = global.tempUserStore.get(tempToken);
+  
+  try {
+    // Validate employee start month/year against database
+    const isValidEmployee = await validateEmployeeStartMonthYear(email, monthYear);
+    
+    if (!isValidEmployee) {
+      return res.status(403).json({ 
+        error: 'Invalid month/year. Please check your start month and year.' 
+      });
+    }
+    
+    // Generate final 6-digit token
+    const token = Math.floor(100000 + Math.random() * 900000).toString();
+    activeTokens.add(token);
+    
+    // Store user data with token for later use
+    const userData = {
+      email,
+      monthYear,
+      token
+    };
+    
+    // Store in a simple in-memory store (in production, use a database)
+    if (!global.userDataStore) {
+      global.userDataStore = new Map();
+    }
+    global.userDataStore.set(token, userData);
+    
+    // Clean up temporary token
+    global.tempUserStore.delete(tempToken);
+    
+    res.json({ token });
+    
+  } catch (error) {
+    console.error('Token generation error:', error);
+    res.status(500).json({ error: 'Internal server error during validation' });
+  }
 });
 
 // Verify token

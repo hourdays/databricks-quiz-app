@@ -13,6 +13,7 @@
             <p class="subtitle">Enter your 6-digit token to join the game</p>
             <div id="welcomeMessage" class="welcome-message hidden">
                 <h2>Welcome, <span id="playerName"></span>! 👋</h2>
+                <p class="databricks-info">Databricks since: <span id="monthYear"></span></p>
             </div>
             
             <div id="tokenInputSection" class="token-input-section">
@@ -82,6 +83,7 @@
         const errorMessage = document.getElementById('errorMessage');
         const welcomeMessage = document.getElementById('welcomeMessage');
         const playerNameSpan = document.getElementById('playerName');
+        const monthYearSpan = document.getElementById('monthYear');
 
         let currentToken = null;
         let playerName = 'Anonymous';
@@ -91,6 +93,10 @@
         if (existingToken) {
             currentToken = existingToken;
             playerName = localStorage.getItem('playerEmail') || 'Anonymous';
+            const monthYear = localStorage.getItem('monthYear');
+            if (monthYear) {
+                monthYearSpan.textContent = monthYear;
+            }
             joinGame(existingToken, playerName);
         }
 
@@ -139,6 +145,12 @@
             const displayName = extractDisplayName(name);
             playerNameSpan.textContent = displayName;
             
+            // Show Databricks date if available
+            const monthYear = localStorage.getItem('monthYear');
+            if (monthYear) {
+                monthYearSpan.textContent = monthYear;
+            }
+            
             // Hide token input, show game section
             tokenInputSection.classList.add('hidden');
             gameSection.classList.remove('hidden');
@@ -165,6 +177,8 @@
             // Capitalize first letter
             return beforeFirstDot.charAt(0).toUpperCase() + beforeFirstDot.slice(1);
         }
+
+        // Format date for display
 
         // Handle player joined
         socket.on('player-joined', (data) => {

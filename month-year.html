@@ -3,26 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quiz App - Landing</title>
+    <title>Quiz App - Month/Year</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
         <div class="landing-card">
             <h1>🎯 Quiz Challenge</h1>
-            <p class="subtitle">Enter your email to get started</p>
+            <p class="subtitle">Enter your first Databricks month and year</p>
+            <p class="instruction">Example: juin 2025, janvier 2020, mars 2021</p>
             
-            <form id="emailForm" class="form">
+            <form id="monthYearForm" class="form">
                 <div class="input-group">
                     <input 
-                        type="email" 
-                        id="emailInput" 
-                        placeholder="Enter your email address"
+                        type="text" 
+                        id="monthYearInput" 
+                        placeholder="Ex: juin 2025"
                         required
                     >
                 </div>
                 <button type="submit" class="btn btn-primary">
-                    Continue
+                    Get Access Token
                 </button>
             </form>
             
@@ -39,46 +40,67 @@
             </div>
             
             <div id="errorMessage" class="error-message hidden"></div>
+            
+            <div class="back-link">
+                <a href="index.html">← Back to email</a>
+            </div>
         </div>
     </div>
 
     <script>
-        const emailForm = document.getElementById('emailForm');
-        const emailInput = document.getElementById('emailInput');
+        const monthYearForm = document.getElementById('monthYearForm');
+        const monthYearInput = document.getElementById('monthYearInput');
         const tokenDisplay = document.getElementById('tokenDisplay');
         const tokenValue = document.getElementById('tokenValue');
         const copyToken = document.getElementById('copyToken');
         const errorMessage = document.getElementById('errorMessage');
 
-        emailForm.addEventListener('submit', async (e) => {
+        // Check if user has temp token, if not redirect to step 1
+        window.addEventListener('load', () => {
+            const tempToken = localStorage.getItem('tempToken');
+            const email = localStorage.getItem('playerEmail');
+            
+            if (!tempToken || !email) {
+                window.location.href = 'index.html';
+            }
+        });
+
+        monthYearForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            const email = emailInput.value.trim();
+            const monthYear = monthYearInput.value.trim();
+            const tempToken = localStorage.getItem('tempToken');
             
-            if (!email) return;
+            if (!monthYear || !tempToken) return;
             
             try {
-                const response = await fetch('/api/validate-email', {
+                const response = await fetch('/api/token', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ email })
+                    body: JSON.stringify({ tempToken, monthYear })
                 });
                 
                 if (response.ok) {
                     const data = await response.json();
-                    const tempToken = data.tempToken;
+                    const token = data.token;
                     
-                    // Store temporary token and email
-                    localStorage.setItem('tempToken', tempToken);
-                    localStorage.setItem('playerEmail', email);
+                    // Store final token and data in localStorage
+                    localStorage.setItem('quizToken', token);
+                    localStorage.setItem('monthYear', monthYear);
                     
-                    // Redirect to step 2
-                    window.location.href = 'month-year.html';
+                    // Clean up temp token
+                    localStorage.removeItem('tempToken');
+                    
+                    // Display token
+                    tokenValue.textContent = token;
+                    tokenDisplay.classList.remove('hidden');
+                    monthYearForm.classList.add('hidden');
+                    hideError();
                 } else {
                     const errorData = await response.json();
-                    showError(errorData.error || 'Failed to validate email. Please try again.');
+                    showError(errorData.error || 'Failed to generate token. Please try again.');
                 }
             } catch (error) {
                 showError('Network error. Please check your connection.');
@@ -103,13 +125,13 @@
             errorMessage.classList.add('hidden');
         }
 
-        // Check if user already has a token
+        // Check if user already has a final token
         window.addEventListener('load', () => {
             const existingToken = localStorage.getItem('quizToken');
             if (existingToken) {
                 tokenValue.textContent = existingToken;
                 tokenDisplay.classList.remove('hidden');
-                emailForm.classList.add('hidden');
+                monthYearForm.classList.add('hidden');
             }
         });
     </script>
