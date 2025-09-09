@@ -6,7 +6,19 @@ const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+
+// Performance optimizations for 100+ players
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  },
+  // Optimize for high concurrency
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  maxHttpBufferSize: 1e6, // 1MB
+  transports: ['websocket', 'polling']
+});
 
 const PORT = process.env.PORT || 3000;
 
@@ -20,8 +32,15 @@ const gameState = {
   photoTimeLeft: 10,
   questionTimeLeft: 10,
   players: new Map(),
-  leaderboard: []
+  leaderboard: [],
+  // Server-side timing for precise ranking
+  questionStartTime: null,
+  questionEndTime: null
 };
+
+// Global timer variables
+let photoTimer = null;
+let questionTimer = null;
 
 // Serve static files
 app.use(express.static(path.join(__dirname)));
@@ -102,6 +121,11 @@ io.on('connection', (socket) => {
           playerCount: gameState.players.size,
           players: Array.from(gameState.players.values()).map(p => p.name)
         });
+        // Also send to admin room so admin sees real-time updates
+        io.to('admin').emit('player-joined', {
+          playerCount: gameState.players.size,
+          players: Array.from(gameState.players.values()).map(p => p.name)
+        });
         console.log(`Player ${playerName} joined with socket ${socket.id}`);
       }
     }
@@ -120,7 +144,7 @@ io.on('connection', (socket) => {
       io.to('waiting-room').emit('game-started', { phase: 'photos', question: gameState.currentQuestion });
       
       // Start photo timer
-      const photoTimer = setInterval(() => {
+      photoTimer = setInterval(() => {
         gameState.photoTimeLeft--;
         io.to('admin').emit('timer-update', { 
           phase: 'photos', 
@@ -142,9 +166,9 @@ io.on('connection', (socket) => {
   });
   
   socket.on('submit-answer', (data) => {
-    const { answer, timeLeft, playerEmail } = data;
+    const { answer, playerEmail } = data; // Remove timeLeft - we'll calculate server-side
     console.log(`Answer submission received from ${socket.id}:`, data);
-    
+
     // Find player by email
     let player = null;
     for (const [key, p] of gameState.players) {
@@ -153,12 +177,30 @@ io.on('connection', (socket) => {
         break;
       }
     }
-    
+
     if (player && !player.currentAnswer) {
       player.currentAnswer = answer;
-      player.answerTime = 10 - timeLeft; // Time taken to answer
-      console.log(`Player ${player.name} submitted answer: ${answer}, time: ${player.answerTime}`);
+      
+      // Calculate precise server-side timing
+      const currentTime = Date.now();
+      const timeElapsed = (currentTime - gameState.questionStartTime) / 1000; // Convert to seconds
+      player.answerTime = Math.round(timeElapsed * 100) / 100; // Round to 2 decimal places
+      
+      console.log(`Player ${player.name} submitted answer: ${answer}, server time: ${player.answerTime}s`);
       io.emit('answer-submitted', { playerId: socket.id, playerName: player.name });
+
+      // Check if all players have answered
+      const allPlayersAnswered = Array.from(gameState.players.values()).every(p => p.currentAnswer !== null);
+      if (allPlayersAnswered) {
+        console.log('All players have answered, ending question early');
+        gameState.questionEndTime = currentTime;
+        // Clear the question timer to prevent double execution
+        if (questionTimer) {
+          clearInterval(questionTimer);
+          questionTimer = null;
+        }
+        endQuestion();
+      }
     } else {
       console.log(`Answer submission rejected for ${socket.id}: player=${!!player}, hasAnswer=${player?.currentAnswer}`);
     }
@@ -177,6 +219,11 @@ io.on('connection', (socket) => {
     if (player) {
       player.isConnected = false;
       io.to('waiting-room').emit('player-left', {
+        playerCount: gameState.players.size,
+        players: Array.from(gameState.players.values()).filter(p => p.isConnected).map(p => p.name)
+      });
+      // Also send to admin room so admin sees real-time updates
+      io.to('admin').emit('player-left', {
         playerCount: gameState.players.size,
         players: Array.from(gameState.players.values()).filter(p => p.isConnected).map(p => p.name)
       });
@@ -220,24 +267,35 @@ io.on('connection', (socket) => {
       console.log(`Admin ${playerName} rejoined admin room with socket ${socket.id}`);
     }
   });
+
+  socket.on('rejoin-waiting-room', (data) => {
+    const { token, playerName } = data;
+    if (activeTokens.has(token)) {
+      socket.join('waiting-room');
+      console.log(`Player ${playerName} rejoined waiting room with socket ${socket.id}`);
+    }
+  });
 });
 
 function startQuestionPhase() {
   gameState.currentPhase = 'question';
   gameState.questionTimeLeft = 10;
-  
+  // Record server-side start time for precise timing
+  gameState.questionStartTime = Date.now();
+  console.log('Question phase started at:', gameState.questionStartTime);
+
   // Send same events to both admin and players
-  io.to('admin').emit('phase-changed', { 
-    phase: 'question', 
-    question: gameState.currentQuestion 
+  io.to('admin').emit('phase-changed', {
+    phase: 'question',
+    question: gameState.currentQuestion
   });
-  io.to('waiting-room').emit('phase-changed', { 
-    phase: 'question', 
-    question: gameState.currentQuestion 
+  io.to('waiting-room').emit('phase-changed', {
+    phase: 'question',
+    question: gameState.currentQuestion
   });
   
   // Start question timer
-  const questionTimer = setInterval(() => {
+  questionTimer = setInterval(() => {
     gameState.questionTimeLeft--;
     io.to('admin').emit('timer-update', { 
       phase: 'question', 
@@ -250,6 +308,8 @@ function startQuestionPhase() {
     
     if (gameState.questionTimeLeft <= 0) {
       clearInterval(questionTimer);
+      questionTimer = null;
+      gameState.questionEndTime = Date.now();
       endQuestion();
     }
   }, 1000);
@@ -285,29 +345,53 @@ function endQuestion() {
   // Since there's only 1 question, go directly to leaderboard
   gameState.currentPhase = 'leaderboard';
   
-  // Ensure we have some leaderboard data even if no one answered correctly
-  if (gameState.leaderboard.length === 0) {
-    console.log('No correct answers, adding all players with 0 score');
-    // Add all players with 0 score if no one answered correctly
-    gameState.players.forEach((player, playerKey) => {
-      if (player.isConnected) {
+  // Add ALL players to leaderboard (even with 0 score for wrong answers)
+  console.log('Adding all players to leaderboard');
+  gameState.players.forEach((player, playerKey) => {
+    if (player.isConnected) {
+      // Check if player is already in leaderboard (from correct answers)
+      const existingPlayer = gameState.leaderboard.find(p => p.name === player.name);
+      if (!existingPlayer) {
+        // Calculate timeout time for players who didn't answer
+        let answerTime = player.answerTime;
+        if (!answerTime && gameState.questionEndTime) {
+          // Player didn't answer - calculate timeout time
+          const totalTime = (gameState.questionEndTime - gameState.questionStartTime) / 1000;
+          answerTime = Math.round(totalTime * 100) / 100;
+        }
+        
+        // Add player with 0 score (wrong answer or no answer)
         gameState.leaderboard.push({
           name: player.name,
           score: 0,
-          answerTime: null
+          answerTime: answerTime || null
         });
       }
-    });
-  }
+    }
+  });
   
-  // Sort by score (highest first)
-  gameState.leaderboard.sort((a, b) => b.score - a.score);
+  // Sort by score (highest first), then by answer time (fastest first) for ties
+  gameState.leaderboard.sort((a, b) => {
+    if (b.score !== a.score) {
+      return b.score - a.score; // Higher score first
+    }
+    // If scores are equal, faster answer time wins
+    if (a.answerTime !== null && b.answerTime !== null) {
+      return a.answerTime - b.answerTime;
+    }
+    return 0;
+  });
   
   console.log('Final leaderboard being sent:', gameState.leaderboard);
   
   // Send different events based on user type
   // Admin gets the full leaderboard with controls
+  console.log('Sending admin-game-ended to admin room');
   io.to('admin').emit('admin-game-ended', { leaderboard: gameState.leaderboard });
+  
+  // Also send to all sockets as fallback (admin will filter)
+  console.log('Sending admin-game-ended-fallback to all sockets');
+  io.emit('admin-game-ended-fallback', { leaderboard: gameState.leaderboard });
   
   // Players get their individual results
   gameState.players.forEach((player, playerKey) => {
@@ -315,18 +399,38 @@ function endQuestion() {
       const playerRank = gameState.leaderboard.findIndex(p => p.name === player.name) + 1;
       const playerScore = gameState.leaderboard.find(p => p.name === player.name)?.score || 0;
       
+      console.log(`Sending player-game-ended to ${player.name}: rank=${playerRank}, score=${playerScore}`);
+      
       // Find the socket for this player
       const playerSocket = Array.from(io.sockets.sockets.values())
         .find(socket => socket.id === player.socketId);
       
       if (playerSocket) {
+        console.log(`Found socket for ${player.name}: ${playerSocket.id}`);
         playerSocket.emit('player-game-ended', { 
           rank: playerRank, 
           score: playerScore,
           totalPlayers: gameState.leaderboard.length
         });
+      } else {
+        console.log(`No socket found for ${player.name} with socketId ${player.socketId}`);
+        // Try to find by player name in waiting room
+        const waitingRoomSockets = Array.from(io.sockets.adapter.rooms.get('waiting-room') || []);
+        console.log('Waiting room sockets:', waitingRoomSockets);
       }
     }
+  });
+  
+  // Fallback: Send to all waiting room sockets with player data
+  console.log('Sending fallback player-game-ended to waiting room');
+  io.to('waiting-room').emit('player-game-ended-fallback', { 
+    leaderboard: gameState.leaderboard
+  });
+  
+  // Also send to all sockets as ultimate fallback
+  console.log('Sending player-game-ended-fallback to all sockets');
+  io.emit('player-game-ended-fallback', { 
+    leaderboard: gameState.leaderboard
   });
 }
 

@@ -191,6 +191,18 @@
             updatePlayersList(data.players);
         });
 
+        // Handle player joined (for admin to see real-time updates)
+        socket.on('player-joined', (data) => {
+            console.log('Player joined:', data);
+            // Check if this is admin - only admin should see player updates
+            const playerEmail = localStorage.getItem('playerEmail');
+            const isAdmin = playerEmail === 'hugues.journeau@databricks.com';
+            if (isAdmin) {
+                playerCount.textContent = data.playerCount;
+                updatePlayersList(data.players);
+            }
+        });
+
         // Handle game started
         socket.on('game-started', (data) => {
             window.location.href = 'game.html';

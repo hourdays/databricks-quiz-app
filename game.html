@@ -55,11 +55,13 @@
             exit;
         }
 
-        // Rejoin admin room if user is admin
+        // Rejoin appropriate room based on user type
         const playerEmail = localStorage.getItem('playerEmail');
         const isAdmin = playerEmail === 'hugues.journeau@databricks.com';
         if (isAdmin) {
             socket.emit('rejoin-admin-room', { token, playerName: playerEmail });
+        } else {
+            socket.emit('rejoin-waiting-room', { token, playerName: playerEmail });
         }
 
         // Handle game started (for both admin and players)

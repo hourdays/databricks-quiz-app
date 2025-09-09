@@ -15,25 +15,9 @@
             </div>
         </div>
 
-        <div class="player-results">
-            <div class="result-card">
-                <div class="rank-display">
-                    <div class="rank-number" id="rankNumber">-</div>
-                    <div class="rank-label">Rank</div>
-                </div>
-                <div class="score-display">
-                    <div class="score-number" id="scoreNumber">0</div>
-                    <div class="score-label">Points</div>
-                </div>
-                <div class="total-players">
-                    out of <span id="totalPlayers">0</span> players
-                </div>
-            </div>
-
-            <div class="thank-you-message">
-                <h3>Thanks for participating!</h3>
-                <p>Your answer has been recorded. The admin will show the final leaderboard shortly.</p>
-            </div>
+        <div class="result-card">
+            <h3>Thanks for participating!</h3>
+            <p>Your answer has been recorded. The admin will show the final leaderboard shortly.</p>
         </div>
     </div>
 
@@ -41,9 +25,6 @@
     <script>
         const socket = io();
         const playerNameSpan = document.getElementById('playerName');
-        const rankNumber = document.getElementById('rankNumber');
-        const scoreNumber = document.getElementById('scoreNumber');
-        const totalPlayers = document.getElementById('totalPlayers');
 
         // Extract display name from email
         function extractDisplayName(email) {
@@ -53,10 +34,10 @@
             return beforeFirstDot.charAt(0).toUpperCase() + beforeFirstDot.slice(1);
         }
 
-        // Handle player game ended
+        // Handle player game ended (no longer need to display results)
         socket.on('player-game-ended', (data) => {
             console.log('Player game ended:', data);
-            displayResults(data);
+            // Just acknowledge, no display needed
         });
 
         // Handle game reset
@@ -64,27 +45,6 @@
             localStorage.clear();
             window.location.href = 'index.html';
         });
-
-        function displayResults(data) {
-            const { rank, score, totalPlayers: total } = data;
-            
-            // Update display
-            rankNumber.textContent = rank;
-            scoreNumber.textContent = score;
-            totalPlayers.textContent = total;
-            
-            // Add rank-based styling
-            if (rank === 1) {
-                rankNumber.style.color = '#FFD700'; // Gold
-                rankNumber.style.fontSize = '3rem';
-            } else if (rank === 2) {
-                rankNumber.style.color = '#C0C0C0'; // Silver
-                rankNumber.style.fontSize = '2.5rem';
-            } else if (rank === 3) {
-                rankNumber.style.color = '#CD7F32'; // Bronze
-                rankNumber.style.fontSize = '2.2rem';
-            }
-        }
 
         // Set up welcome message
         window.addEventListener('load', () => {

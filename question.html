@@ -81,11 +81,13 @@
             exit;
         }
 
-        // Rejoin admin room if user is admin
+        // Rejoin appropriate room based on user type
         const playerEmail = localStorage.getItem('playerEmail');
         const isAdmin = playerEmail === 'hugues.journeau@databricks.com';
         if (isAdmin) {
             socket.emit('rejoin-admin-room', { token, playerName: playerEmail });
+        } else {
+            socket.emit('rejoin-waiting-room', { token, playerName: playerEmail });
         }
 
         let timeLeft = 10;
@@ -160,12 +162,29 @@
 
         // Handle player game ended (redirect to thanks page)
         socket.on('player-game-ended', (data) => {
+            console.log('Player game ended:', data);
+            window.location.href = 'player-thanks.html';
+        });
+
+        // Handle fallback player game ended
+        socket.on('player-game-ended-fallback', (data) => {
+            console.log('Player game ended fallback:', data);
+            // Just redirect to thanks page, no need to store rank/score data
             window.location.href = 'player-thanks.html';
         });
 
         // Handle admin game ended (redirect to admin leaderboard)
         socket.on('admin-game-ended', (data) => {
             window.location.href = 'admin-leaderboard.html';
+        });
+
+        // Handle fallback admin game ended
+        socket.on('admin-game-ended-fallback', (data) => {
+            const playerEmail = localStorage.getItem('playerEmail');
+            const isAdmin = playerEmail === 'hugues.journeau@databricks.com';
+            if (isAdmin) {
+                window.location.href = 'admin-leaderboard.html';
+            }
         });
 
         // Handle form submission
@@ -199,10 +218,10 @@
                 clearInterval(questionTimer);
                 disableForm();
                 const playerEmail = localStorage.getItem('playerEmail');
-                console.log('Submitting answer:', answer, 'timeLeft:', timeLeft, 'playerEmail:', playerEmail);
+                console.log('Submitting answer:', answer, 'playerEmail:', playerEmail);
+                // Server will calculate precise timing - no need to send timeLeft
                 socket.emit('submit-answer', { 
                     answer, 
-                    timeLeft: timeLeft,
                     playerEmail: playerEmail
                 });
             } else {

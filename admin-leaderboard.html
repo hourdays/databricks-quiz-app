@@ -72,6 +72,17 @@
             displayLeaderboard(data.leaderboard);
         });
 
+        // Handle fallback admin game ended
+        socket.on('admin-game-ended-fallback', (data) => {
+            console.log('Admin game ended fallback:', data);
+            // Check if this is actually the admin
+            const playerEmail = localStorage.getItem('playerEmail');
+            const isAdmin = playerEmail === 'hugues.journeau@databricks.com';
+            if (isAdmin) {
+                displayLeaderboard(data.leaderboard);
+            }
+        });
+
         // Handle game reset
         socket.on('game-reset', () => {
             localStorage.clear();
