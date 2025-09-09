@@ -55,8 +55,13 @@
             exit;
         }
 
-        // Handle game started
+        // Handle game started (for players)
         socket.on('game-started', (data) => {
+            questionNumber.textContent = data.question + 1;
+        });
+
+        // Handle admin game started (for admin)
+        socket.on('admin-game-started', (data) => {
             questionNumber.textContent = data.question + 1;
         });
 
@@ -65,7 +70,7 @@
             questionNumber.textContent = data.question + 1;
         });
 
-        // Handle timer updates
+        // Handle timer updates (for players)
         socket.on('timer-update', (data) => {
             if (data.phase === 'photos') {
                 timer.textContent = data.timeLeft;
@@ -75,16 +80,38 @@
             }
         });
 
-        // Handle phase change to question
+        // Handle admin timer updates
+        socket.on('admin-timer-update', (data) => {
+            if (data.phase === 'photos') {
+                timer.textContent = data.timeLeft;
+                if (data.timeLeft <= 3) {
+                    timer.classList.add('warning');
+                }
+            }
+        });
+
+        // Handle phase change to question (for players)
         socket.on('phase-changed', (data) => {
             if (data.phase === 'question') {
                 window.location.href = 'question.html';
             }
         });
 
-        // Handle game ended
+        // Handle admin phase change to question
+        socket.on('admin-phase-changed', (data) => {
+            if (data.phase === 'question') {
+                window.location.href = 'question.html';
+            }
+        });
+
+        // Handle game ended (for players)
         socket.on('game-ended', (data) => {
             window.location.href = 'leaderboard.html';
+        });
+
+        // Handle admin game ended
+        socket.on('admin-game-ended', (data) => {
+            window.location.href = 'admin-leaderboard.html';
         });
 
 

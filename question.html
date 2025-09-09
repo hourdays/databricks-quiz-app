@@ -102,8 +102,24 @@
             }, 1000);
         }
 
-        // Handle timer updates from server (backup)
+        // Handle timer updates from server (backup for players)
         socket.on('timer-update', (data) => {
+            if (data.phase === 'question') {
+                timeLeft = data.timeLeft;
+                timer.textContent = timeLeft;
+                
+                if (timeLeft <= 3) {
+                    timer.classList.add('warning');
+                }
+                
+                if (timeLeft <= 0 && !hasAnswered) {
+                    submitAnswer('timeout');
+                }
+            }
+        });
+
+        // Handle admin timer updates
+        socket.on('admin-timer-update', (data) => {
             if (data.phase === 'question') {
                 timeLeft = data.timeLeft;
                 timer.textContent = timeLeft;
@@ -146,9 +162,19 @@
             resetQuestion();
         });
 
-        // Handle game ended
+        // Handle game ended (for players)
         socket.on('game-ended', (data) => {
             window.location.href = 'leaderboard.html';
+        });
+
+        // Handle player game ended (redirect to thanks page)
+        socket.on('player-game-ended', (data) => {
+            window.location.href = 'player-thanks.html';
+        });
+
+        // Handle admin game ended (redirect to admin leaderboard)
+        socket.on('admin-game-ended', (data) => {
+            window.location.href = 'admin-leaderboard.html';
         });
 
         // Handle form submission

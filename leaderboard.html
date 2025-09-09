@@ -23,7 +23,7 @@
                     <button id="playAgainBtn" class="btn btn-primary">
                         Play Again
                     </button>
-                    <button id="newGameBtn" class="btn btn-secondary">
+                    <button id="newGameBtn" class="btn btn-secondary hidden">
                         New Game
                     </button>
                 </div>
@@ -51,6 +51,13 @@
         if (!token) {
             window.location.href = '/';
             exit;
+        }
+
+        // Check if user is admin and show new game button
+        const playerEmail = localStorage.getItem('playerEmail');
+        const isAdmin = playerEmail === 'hugues.journeau@databricks.com';
+        if (isAdmin) {
+            newGameBtn.classList.remove('hidden');
         }
 
         // Handle game ended with leaderboard data

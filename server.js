@@ -79,22 +79,31 @@ io.on('connection', (socket) => {
   socket.on('join-waiting', (data) => {
     const { token, playerName } = data;
     if (activeTokens.has(token)) {
-      // Store player by email instead of socket ID
-      const playerKey = playerName || 'Anonymous';
-      gameState.players.set(playerKey, {
-        name: playerName || 'Anonymous',
-        score: 0,
-        currentAnswer: null,
-        answerTime: null,
-        isConnected: true,
-        socketId: socket.id
-      });
-      socket.join('waiting-room');
-      io.to('waiting-room').emit('player-joined', {
-        playerCount: gameState.players.size,
-        players: Array.from(gameState.players.values()).map(p => p.name)
-      });
-      console.log(`Player ${playerName} joined with socket ${socket.id}`);
+      const isAdmin = playerName === 'hugues.journeau@databricks.com';
+      
+      if (isAdmin) {
+        // Admin joins admin room and doesn't become a player
+        socket.join('admin');
+        socket.emit('admin-joined', { message: 'Admin connected' });
+        console.log(`Admin ${playerName} joined with socket ${socket.id}`);
+      } else {
+        // Store player by email instead of socket ID
+        const playerKey = playerName || 'Anonymous';
+        gameState.players.set(playerKey, {
+          name: playerName || 'Anonymous',
+          score: 0,
+          currentAnswer: null,
+          answerTime: null,
+          isConnected: true,
+          socketId: socket.id
+        });
+        socket.join('waiting-room');
+        io.to('waiting-room').emit('player-joined', {
+          playerCount: gameState.players.size,
+          players: Array.from(gameState.players.values()).map(p => p.name)
+        });
+        console.log(`Player ${playerName} joined with socket ${socket.id}`);
+      }
     }
   });
   
@@ -106,13 +115,18 @@ io.on('connection', (socket) => {
       gameState.currentQuestion = 0;
       gameState.photoTimeLeft = 10;
       
-      // Start photo display phase
-      io.emit('game-started', { phase: 'photos', question: gameState.currentQuestion });
+      // Start photo display phase - send to both admin and players
+      io.to('admin').emit('admin-game-started', { phase: 'photos', question: gameState.currentQuestion });
+      io.to('waiting-room').emit('game-started', { phase: 'photos', question: gameState.currentQuestion });
       
       // Start photo timer
       const photoTimer = setInterval(() => {
         gameState.photoTimeLeft--;
-        io.emit('timer-update', { 
+        io.to('admin').emit('admin-timer-update', { 
+          phase: 'photos', 
+          timeLeft: gameState.photoTimeLeft 
+        });
+        io.to('waiting-room').emit('timer-update', { 
           phase: 'photos', 
           timeLeft: gameState.photoTimeLeft 
         });
@@ -196,7 +210,12 @@ function startQuestionPhase() {
   gameState.currentPhase = 'question';
   gameState.questionTimeLeft = 10;
   
-  io.emit('phase-changed', { 
+  // Send different events to admin vs players
+  io.to('admin').emit('admin-phase-changed', { 
+    phase: 'question', 
+    question: gameState.currentQuestion 
+  });
+  io.to('waiting-room').emit('phase-changed', { 
     phase: 'question', 
     question: gameState.currentQuestion 
   });
@@ -204,7 +223,11 @@ function startQuestionPhase() {
   // Start question timer
   const questionTimer = setInterval(() => {
     gameState.questionTimeLeft--;
-    io.emit('timer-update', { 
+    io.to('admin').emit('admin-timer-update', { 
+      phase: 'question', 
+      timeLeft: gameState.questionTimeLeft 
+    });
+    io.to('waiting-room').emit('timer-update', { 
       phase: 'question', 
       timeLeft: gameState.questionTimeLeft 
     });
@@ -265,7 +288,30 @@ function endQuestion() {
   gameState.leaderboard.sort((a, b) => b.score - a.score);
   
   console.log('Final leaderboard being sent:', gameState.leaderboard);
-  io.emit('game-ended', { leaderboard: gameState.leaderboard });
+  
+  // Send different events based on user type
+  // Admin gets the full leaderboard with controls
+  io.to('admin').emit('admin-game-ended', { leaderboard: gameState.leaderboard });
+  
+  // Players get their individual results
+  gameState.players.forEach((player, playerKey) => {
+    if (player.isConnected) {
+      const playerRank = gameState.leaderboard.findIndex(p => p.name === player.name) + 1;
+      const playerScore = gameState.leaderboard.find(p => p.name === player.name)?.score || 0;
+      
+      // Find the socket for this player
+      const playerSocket = Array.from(io.sockets.sockets.values())
+        .find(socket => socket.id === player.socketId);
+      
+      if (playerSocket) {
+        playerSocket.emit('player-game-ended', { 
+          rank: playerRank, 
+          score: playerScore,
+          totalPlayers: gameState.leaderboard.length
+        });
+      }
+    }
+  });
 }
 
 server.listen(PORT, () => {

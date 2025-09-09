@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Leaderboard - Quiz App</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Admin Leaderboard</h1>
+            <div class="welcome-message">
+                <h2>Welcome, Admin! 👋</h2>
+            </div>
+        </div>
+
+        <div class="admin-leaderboard">
+            <div id="waitingMessage" class="waiting-message">
+                <h2>⏳ Waiting for answers...</h2>
+                <p>Players are currently answering the question. Results will appear here when the timer ends.</p>
+            </div>
+
+            <div id="leaderboardContent" class="leaderboard-content hidden">
+                <h2>Final Results</h2>
+                <div id="leaderboard" class="leaderboard">
+                    <!-- Leaderboard will be populated here -->
+                </div>
+            </div>
+
+            <div class="admin-controls">
+                <button id="newGameBtn" class="btn btn-primary btn-large">
+                    New Game
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const waitingMessage = document.getElementById('waitingMessage');
+        const leaderboardContent = document.getElementById('leaderboardContent');
+        const leaderboard = document.getElementById('leaderboard');
+        const newGameBtn = document.getElementById('newGameBtn');
+
+        // Handle admin game started (photos phase)
+        socket.on('admin-game-started', (data) => {
+            console.log('Admin game started:', data);
+            if (data.phase === 'photos') {
+                window.location.href = 'game.html';
+            }
+        });
+
+        // Handle admin phase changed (question phase)
+        socket.on('admin-phase-changed', (data) => {
+            console.log('Admin phase changed:', data);
+            if (data.phase === 'question') {
+                window.location.href = 'question.html';
+            }
+        });
+
+        // Handle admin timer updates
+        socket.on('admin-timer-update', (data) => {
+            console.log('Admin timer update:', data);
+            // Timer updates are handled by the current page
+        });
+
+        // Handle admin game ended (show leaderboard)
+        socket.on('admin-game-ended', (data) => {
+            console.log('Admin game ended:', data);
+            displayLeaderboard(data.leaderboard);
+        });
+
+        // Handle game reset
+        socket.on('game-reset', () => {
+            localStorage.clear();
+            window.location.href = 'index.html';
+        });
+
+        function displayLeaderboard(leaderboardData) {
+            waitingMessage.classList.add('hidden');
+            leaderboardContent.classList.remove('hidden');
+
+            leaderboard.innerHTML = '';
+            
+            if (leaderboardData && leaderboardData.length > 0) {
+                leaderboardData.forEach((player, index) => {
+                    const playerElement = document.createElement('div');
+                    playerElement.className = 'leaderboard-item';
+                    
+                    const rank = index + 1;
+                    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
+                    
+                    playerElement.innerHTML = `
+                        <div class="rank">${medal}</div>
+                        <div class="player-name">${player.name}</div>
+                        <div class="score">${player.score} pts</div>
+                        <div class="time">${player.answerTime ? player.answerTime + 's' : 'N/A'}</div>
+                    `;
+                    
+                    leaderboard.appendChild(playerElement);
+                });
+            } else {
+                leaderboard.innerHTML = '<div class="no-results">No results available</div>';
+            }
+        }
+
+        // New Game button
+        newGameBtn.addEventListener('click', () => {
+            // Clear localStorage
+            localStorage.clear();
+            
+            // Emit reset game event
+            socket.emit('reset-game');
+            
+            // Redirect to landing page
+            window.location.href = 'index.html';
+        });
+
+        // Check if we have leaderboard data on load
+        window.addEventListener('load', () => {
+            // Request current leaderboard data
+            socket.emit('request-leaderboard');
+        });
+
+        // Handle leaderboard updates
+        socket.on('leaderboard-update', (data) => {
+            if (data.leaderboard && data.leaderboard.length > 0) {
+                displayLeaderboard(data.leaderboard);
+            }
+        });
+    </script>
+</body>
+</html>

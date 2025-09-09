@@ -685,3 +685,102 @@ input[type="email"]:focus {
         padding: 6px 12px;
     }
 }
+
+/* Admin Leaderboard Styles */
+.admin-leaderboard {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.waiting-message {
+    text-align: center;
+    padding: 40px 20px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    margin: 20px 0;
+}
+
+.waiting-message h2 {
+    color: #6c757d;
+    margin-bottom: 10px;
+}
+
+.waiting-message p {
+    color: #6c757d;
+    font-size: 1.1rem;
+}
+
+.leaderboard-content {
+    background: white;
+    border-radius: 12px;
+    padding: 30px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.leaderboard-content h2 {
+    text-align: center;
+    margin-bottom: 30px;
+    color: #333;
+}
+
+/* Player Thanks Page Styles */
+.player-results {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.result-card {
+    background: white;
+    border-radius: 16px;
+    padding: 40px;
+    text-align: center;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+}
+
+.rank-display, .score-display {
+    display: inline-block;
+    margin: 20px;
+    vertical-align: top;
+}
+
+.rank-number, .score-number {
+    font-size: 4rem;
+    font-weight: bold;
+    color: #007bff;
+    line-height: 1;
+    margin-bottom: 10px;
+}
+
+.rank-label, .score-label {
+    font-size: 1.1rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.total-players {
+    font-size: 1.2rem;
+    color: #6c757d;
+    margin-top: 20px;
+}
+
+.thank-you-message {
+    text-align: center;
+    background: #f8f9fa;
+    padding: 30px;
+    border-radius: 12px;
+}
+
+.thank-you-message h3 {
+    color: #333;
+    margin-bottom: 15px;
+}
+
+.thank-you-message p {
+    color: #6c757d;
+    font-size: 1.1rem;
+    line-height: 1.6;
+}
