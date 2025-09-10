@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Talk to the Scores - Quiz App</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Talk to the Scores</h1>
+            <div class="welcome-message">
+                <h2>Ask questions about your quiz data! 📊</h2>
+            </div>
+        </div>
+
+        <div class="chat-container">
+            <div class="chat-header">
+                <h3>Databricks Genie Assistant</h3>
+                <button id="startChatBtn" class="btn btn-primary">
+                    Start Chat
+                </button>
+            </div>
+            
+            <div id="chatMessages" class="chat-messages">
+                <!-- Chat messages will appear here -->
+            </div>
+            
+            <div class="chat-input-container">
+                <input 
+                    type="text" 
+                    id="chatInput" 
+                    placeholder="Ask a question about your data..." 
+                    class="chat-input"
+                    disabled
+                />
+                <button id="sendBtn" class="btn btn-primary" disabled>
+                    Send
+                </button>
+            </div>
+        </div>
+
+        <div class="back-to-admin">
+            <a href="admin-leaderboard.html" class="btn btn-secondary">
+                ← Back to Admin Leaderboard
+            </a>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const startChatBtn = document.getElementById('startChatBtn');
+        const chatMessages = document.getElementById('chatMessages');
+        const chatInput = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('sendBtn');
+        let isChatStarted = false;
+
+        // Start chatbot
+        startChatBtn.addEventListener('click', () => {
+            if (!isChatStarted) {
+                socket.emit('start-chatbot', {});
+            }
+        });
+
+        // Send message
+        sendBtn.addEventListener('click', sendMessage);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        function sendMessage() {
+            const message = chatInput.value.trim();
+            if (message && isChatStarted) {
+                // Add user message to chat
+                addMessage('user', message);
+                
+                // Send to server
+                socket.emit('send-chatbot-message', { message });
+                
+                // Clear input and disable temporarily
+                chatInput.value = '';
+                chatInput.disabled = true;
+                sendBtn.disabled = true;
+                sendBtn.textContent = 'Sending...';
+            }
+        }
+
+        function addMessage(sender, message, timestamp = null) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${sender}`;
+            
+            const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+            
+            messageDiv.innerHTML = `
+                <div class="message-content">${message}</div>
+                <div class="message-time">${time}</div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Socket event handlers
+        socket.on('chatbot-started', (data) => {
+            if (data.success) {
+                isChatStarted = true;
+                startChatBtn.textContent = 'Connected';
+                startChatBtn.disabled = true;
+                chatInput.disabled = false;
+                sendBtn.disabled = false;
+                
+                addMessage('assistant', data.message);
+            }
+        });
+
+        socket.on('chatbot-response', (data) => {
+            // Re-enable input
+            chatInput.disabled = false;
+            sendBtn.disabled = false;
+            sendBtn.textContent = 'Send';
+            
+            if (data.success) {
+                addMessage('assistant', data.message, data.timestamp);
+            } else {
+                addMessage('assistant', `Error: ${data.message}`, data.timestamp);
+            }
+        });
+
+        socket.on('chatbot-error', (data) => {
+            alert(`Chatbot Error: ${data.message}`);
+            if (isChatStarted) {
+                // Reset chatbot state
+                isChatStarted = false;
+                startChatBtn.textContent = 'Start Chat';
+                startChatBtn.disabled = false;
+                chatInput.disabled = true;
+                sendBtn.disabled = true;
+            }
+        });
+
+        // Auto-join admin room when page loads
+        window.addEventListener('load', () => {
+            // Join admin room for chatbot access
+            socket.emit('join-admin-direct');
+        });
+    </script>
+</body>
+</html>

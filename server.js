@@ -4,6 +4,7 @@ const socketIo = require('socket.io');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { DBSQLClient } = require('@databricks/sql');
+const axios = require('axios');
 
 const app = express();
 const server = http.createServer(app);
@@ -34,6 +35,20 @@ const databricksConfig = {
   // New table for storing quiz results
   resultsTable: process.env.DATABRICKS_RESULTS_TABLE || 'game_scores'
 };
+
+// Genie configuration
+const genieConfig = {
+  workspaceUrl: process.env.DATABRICKS_WORKSPACE_URL || 'https://your-workspace.cloud.databricks.com',
+  accessToken: process.env.DATABRICKS_ACCESS_TOKEN || 'your-access-token',
+  spaceId: process.env.DATABRICKS_GENIE_SPACE_ID || '01f08e1bf17f148c8eaac12644f93fd5'
+};
+
+// Log Genie configuration (without exposing full token)
+console.log('🔧 Genie Configuration:');
+console.log(`   Workspace URL: ${genieConfig.workspaceUrl}`);
+console.log(`   Space ID: ${genieConfig.spaceId}`);
+console.log(`   Access Token Length: ${genieConfig.accessToken ? genieConfig.accessToken.length : 'NOT SET'}`);
+console.log(`   Access Token Preview: ${genieConfig.accessToken ? genieConfig.accessToken.substring(0, 20) + '...' : 'NOT SET'}`);
 
 // Databricks client
 const databricksClient = new DBSQLClient();
@@ -147,6 +162,219 @@ function validateWithMockDatabase(email, monthYear) {
   
   console.log(`Mock validation successful for ${email}`);
   return true;
+}
+
+// Genie API functions
+async function sendGenieMessage(message) {
+  try {
+    const response = await axios.post(
+      `${genieConfig.workspaceUrl}/api/2.0/genie/spaces/${genieConfig.spaceId}/start-conversation`,
+      {
+        content: message
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${genieConfig.accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    console.log('Genie response received:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Error sending Genie message:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+async function getGenieMessageStatus(spaceId, conversationId, messageId) {
+  try {
+    console.log(`🔍 Polling Genie message status...`);
+    console.log(`   Space ID: ${spaceId}`);
+    console.log(`   Conversation ID: ${conversationId}`);
+    console.log(`   Message ID: ${messageId}`);
+    console.log(`   Workspace URL: ${genieConfig.workspaceUrl}`);
+    console.log(`   Access Token (first 20 chars): ${genieConfig.accessToken.substring(0, 20)}...`);
+    
+    const url = `${genieConfig.workspaceUrl}/api/2.0/genie/spaces/${spaceId}/conversations/${conversationId}/messages/${messageId}`;
+    console.log(`   Full URL: ${url}`);
+    
+    const response = await axios.get(url, {
+      headers: {
+        'Authorization': `Bearer ${genieConfig.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('✅ Genie message status response:', JSON.stringify(response.data, null, 2));
+    return response.data;
+  } catch (error) {
+    console.error('❌ Error getting Genie message status:');
+    console.error('   Status:', error.response?.status);
+    console.error('   Status Text:', error.response?.statusText);
+    console.error('   Headers:', error.response?.headers);
+    console.error('   Data:', JSON.stringify(error.response?.data, null, 2));
+    console.error('   Full Error:', error.message);
+    throw error;
+  }
+}
+
+async function testGeniePermissions(spaceId) {
+  try {
+    console.log(`🔐 Testing Genie permissions for space: ${spaceId}`);
+    
+    // Test 1: Try to get space info
+    const spaceUrl = `${genieConfig.workspaceUrl}/api/2.0/genie/spaces/${spaceId}`;
+    console.log(`   Testing space info endpoint: ${spaceUrl}`);
+    
+    const spaceResponse = await axios.get(spaceUrl, {
+      headers: {
+        'Authorization': `Bearer ${genieConfig.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('✅ Space info accessible:', JSON.stringify(spaceResponse.data, null, 2));
+    
+    // Test 2: Try to list conversations in the space
+    const conversationsUrl = `${genieConfig.workspaceUrl}/api/2.0/genie/spaces/${spaceId}/conversations`;
+    console.log(`   Testing conversations list endpoint: ${conversationsUrl}`);
+    
+    const conversationsResponse = await axios.get(conversationsUrl, {
+      headers: {
+        'Authorization': `Bearer ${genieConfig.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('✅ Conversations list accessible:', JSON.stringify(conversationsResponse.data, null, 2));
+    return true;
+  } catch (error) {
+    console.error('❌ Permission test failed:');
+    console.error('   Status:', error.response?.status);
+    console.error('   Status Text:', error.response?.statusText);
+    console.error('   Data:', JSON.stringify(error.response?.data, null, 2));
+    
+    // Check if it's specifically a permission issue
+    if (error.response?.data?.error_code === 'PERMISSION_DENIED') {
+      console.error('🚨 PERMISSION_DENIED detected!');
+      console.error('   This suggests the access token does not have the required permissions.');
+      console.error('   Please verify:');
+      console.error('   1. The access token is valid and not expired');
+      console.error('   2. The token has "Can View" permission on the Genie space');
+      console.error('   3. The space ID is correct');
+      console.error('   4. The workspace URL is correct');
+    }
+    
+    return false;
+  }
+}
+
+async function getQueryResults(statementId) {
+  try {
+    console.log(`📊 Fetching query results for statement: ${statementId}`);
+    
+    const resultsUrl = `${genieConfig.workspaceUrl}/api/2.0/sql/statements/${statementId}`;
+    console.log(`   Results URL: ${resultsUrl}`);
+    
+    const response = await axios.get(resultsUrl, {
+      headers: {
+        'Authorization': `Bearer ${genieConfig.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('✅ Query results fetched:', JSON.stringify(response.data, null, 2));
+    return response.data;
+  } catch (error) {
+    console.error('❌ Failed to fetch query results:');
+    console.error('   Status:', error.response?.status);
+    console.error('   Data:', JSON.stringify(error.response?.data, null, 2));
+    return null;
+  }
+}
+
+async function waitForGenieResponse(spaceId, conversationId, messageId, maxAttempts = 20, delayMs = 3000) {
+  // First test permissions
+  const hasPermissions = await testGeniePermissions(spaceId);
+  if (!hasPermissions) {
+    return `❌ **Permission Test Failed**: Cannot access Genie space. Please verify your access token has the correct permissions.`;
+  }
+  
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const messageStatus = await getGenieMessageStatus(spaceId, conversationId, messageId);
+      
+      console.log(`Attempt ${attempt + 1}: Status = ${messageStatus.status}`);
+      
+      if (messageStatus.status === 'COMPLETED') {
+        // Try to get the actual data from query results
+        if (messageStatus.query_result && messageStatus.query_result.statement_id) {
+          const statementId = messageStatus.query_result.statement_id;
+          const queryResults = await getQueryResults(statementId);
+          
+          if (queryResults && queryResults.result && queryResults.result.data_array) {
+            const data = queryResults.result.data_array;
+            if (data.length > 0) {
+              // Just return the actual data values
+              const values = data.map(row => row.join(', ')).join('\n');
+              return values;
+            }
+          }
+        }
+        
+        // Fallback: try to get any text response from attachments
+        if (messageStatus.attachments && messageStatus.attachments.length > 0) {
+          const attachment = messageStatus.attachments[0];
+          if (attachment.text) {
+            return attachment.text;
+          }
+        }
+        
+        // Final fallback
+        return 'No data found in response.';
+      } else if (messageStatus.status === 'FAILED') {
+        return `❌ Genie processing failed. Error: ${messageStatus.error || 'Unknown error'}`;
+      } else if (messageStatus.status === 'CANCELLED') {
+        return '❌ Genie processing was cancelled.';
+      }
+      
+      // Wait before next attempt
+      if (attempt < maxAttempts - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    } catch (error) {
+      console.error(`Attempt ${attempt + 1} failed:`, error.message);
+      
+      // If it's a permission error, provide helpful guidance
+      if (error.response?.status === 403) {
+        return `❌ **Permission Error**: Unable to poll for Genie response.
+
+🔧 **Required Permissions:**
+Your access token needs "Can View" permission on the Genie space to poll for responses.
+
+📋 **Conversation Details:**
+• Conversation ID: ${conversationId}
+• Message ID: ${messageId}
+• Space ID: ${spaceId}
+
+💡 **To see the AI response:**
+1. Go to your Databricks workspace
+2. Navigate to the Genie space: ${spaceId}
+3. Look for conversation: ${conversationId}
+4. The AI response should appear there shortly
+
+⏱️ **Processing time:** Usually 30 seconds to 2 minutes for most queries.`;
+      }
+      
+      if (attempt < maxAttempts - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  
+  return '⏰ Response timeout - Genie is still processing your request. This can take up to 10 minutes for complex queries.';
 }
 
 // Function to save quiz results to Databricks
@@ -290,6 +518,10 @@ app.get('/question', (req, res) => {
 
 app.get('/leaderboard', (req, res) => {
   res.sendFile(path.join(__dirname, 'leaderboard.html'));
+});
+
+app.get('/chat', (req, res) => {
+  res.sendFile(path.join(__dirname, 'chat.html'));
 });
 
 // Step 1: Validate email and generate temporary token
@@ -552,29 +784,6 @@ io.on('connection', (socket) => {
     }
   });
   
-  socket.on('disconnect', () => {
-    // Find player by socket ID
-    let player = null;
-    for (const [key, p] of gameState.players) {
-      if (p.socketId === socket.id) {
-        player = p;
-        break;
-      }
-    }
-    
-    if (player) {
-      player.isConnected = false;
-      io.to('waiting-room').emit('player-left', {
-        playerCount: gameState.players.size,
-        players: Array.from(gameState.players.values()).filter(p => p.isConnected).map(p => p.name)
-      });
-      // Also send to admin room so admin sees real-time updates
-      io.to('admin').emit('player-left', {
-        playerCount: gameState.players.size,
-        players: Array.from(gameState.players.values()).filter(p => p.isConnected).map(p => p.name)
-      });
-    }
-  });
   
   socket.on('reset-game', () => {
     // Reset game state
@@ -658,6 +867,124 @@ io.on('connection', (socket) => {
     if (activeTokens.has(token)) {
       socket.join('waiting-room');
       console.log(`Player ${playerName} rejoined waiting room with socket ${socket.id}`);
+    }
+  });
+
+  // Direct admin access for chat page (bypasses quiz authentication)
+  socket.on('join-admin-direct', () => {
+    socket.join('admin');
+    socket.emit('admin-joined', { message: 'Admin connected for chat' });
+    console.log(`Admin joined for chat with socket ${socket.id}`);
+  });
+
+  // Chatbot events
+  socket.on('start-chatbot', async (data) => {
+    // Check if this is an admin socket (in admin room)
+    if (socket.rooms.has('admin')) {
+      try {
+        console.log('Testing Genie connection...');
+        // Test the connection with a simple message
+        const testResponse = await sendGenieMessage('Hello, can you help me with data questions?');
+        
+        socket.emit('chatbot-started', { 
+          success: true, 
+          message: 'Chatbot connected to Databricks Genie. You can now ask questions about your data!',
+          testResponse: testResponse
+        });
+        
+        console.log('Genie chatbot ready for admin');
+      } catch (error) {
+        console.error('Failed to connect to Genie:', error);
+        socket.emit('chatbot-error', { 
+          success: false, 
+          message: `Failed to connect to Databricks Genie: ${error.response?.data?.message || error.message}` 
+        });
+      }
+    } else {
+      socket.emit('chatbot-error', { 
+        success: false, 
+        message: 'Only admin can access the chatbot.' 
+      });
+    }
+  });
+
+  socket.on('send-chatbot-message', async (data) => {
+    const { message } = data;
+    if (socket.rooms.has('admin')) {
+      try {
+        console.log(`Sending message to Genie: ${message}`);
+        
+        // Send message directly to Genie space
+        const response = await sendGenieMessage(message);
+        
+        // Send immediate acknowledgment
+        socket.emit('chatbot-response', {
+          success: true,
+          message: `🔄 Question submitted: "${message}"\n\n⏳ Waiting for Genie to process your request...`,
+          timestamp: new Date().toISOString()
+        });
+        
+        console.log('Response from Genie:', response);
+        // Wait for the actual response using proper polling
+        if (response.conversation_id && response.message_id) {
+          console.log(`Polling for response: conversation=${response.conversation_id}, message=${response.message_id}`);
+          const actualResponse = await waitForGenieResponse(
+            response.conversation.space_id, 
+            response.conversation_id, 
+            response.message_id
+          );
+          
+          socket.emit('chatbot-response', {
+            success: true,
+            message: actualResponse,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          socket.emit('chatbot-response', {
+            success: false,
+            message: '❌ No conversation or message ID received from Genie',
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        console.log('Genie response sent to admin');
+      } catch (error) {
+        console.error('Failed to send message to Genie:', error);
+        socket.emit('chatbot-response', {
+          success: false,
+          message: `❌ Failed to get response from Genie: ${error.response?.data?.message || error.message}`,
+          timestamp: new Date().toISOString()
+        });
+      }
+    } else {
+      socket.emit('chatbot-error', { 
+        success: false, 
+        message: 'Only admin can access the chatbot.' 
+      });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    // Find player by socket ID
+    let player = null;
+    for (const [key, p] of gameState.players) {
+      if (p.socketId === socket.id) {
+        player = p;
+        break;
+      }
+    }
+    
+    if (player) {
+      player.isConnected = false;
+      io.to('waiting-room').emit('player-left', {
+        playerCount: gameState.players.size,
+        players: Array.from(gameState.players.values()).filter(p => p.isConnected).map(p => p.name)
+      });
+      // Also send to admin room so admin sees real-time updates
+      io.to('admin').emit('player-left', {
+        playerCount: gameState.players.size,
+        players: Array.from(gameState.players.values()).filter(p => p.isConnected).map(p => p.name)
+      });
     }
   });
 });
