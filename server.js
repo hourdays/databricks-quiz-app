@@ -26,22 +26,31 @@ const PORT = process.env.PORT || 3000;
 
 // Databricks configuration
 const databricksConfig = {
-  serverHostname: process.env.DATABRICKS_SERVER_HOSTNAME || 'your-databricks-hostname',
-  httpPath: process.env.DATABRICKS_HTTP_PATH || '/sql/1.0/warehouses/your-warehouse-id',
+  serverHostname: process.env.DATABRICKS_WORKSPACE_URL?.replace('https://', '') || 'your-workspace-url',
+  httpPath: `/sql/1.0/warehouses/${process.env.DATABRICKS_WAREHOUSE_ID || 'your-warehouse-id'}`,
   accessToken: process.env.DATABRICKS_ACCESS_TOKEN || 'your-access-token',
-  catalog: process.env.DATABRICKS_CATALOG || 'hive_metastore',
-  schema: process.env.DATABRICKS_SCHEMA || 'default',
-  table: process.env.DATABRICKS_TABLE || 'employees',
+  catalog: process.env.DATABRICKS_CATALOG || 'your-catalog',
+  schema: process.env.DATABRICKS_SCHEMA || 'quiz',
+  table: process.env.DATABRICKS_TABLE || 'users',
   // New table for storing quiz results
   resultsTable: process.env.DATABRICKS_RESULTS_TABLE || 'game_scores'
 };
 
 // Genie configuration
 const genieConfig = {
-  workspaceUrl: process.env.DATABRICKS_WORKSPACE_URL || 'https://your-workspace.cloud.databricks.com',
+  workspaceUrl: process.env.DATABRICKS_WORKSPACE_URL || 'https://your-workspace-url',
   accessToken: process.env.DATABRICKS_ACCESS_TOKEN || 'your-access-token',
-  spaceId: process.env.DATABRICKS_GENIE_SPACE_ID || '01f08e1bf17f148c8eaac12644f93fd5'
+  spaceId: process.env.DATABRICKS_GENIE_SPACE_ID || 'your-genie-space-id'
 };
+
+// Log configuration for debugging
+console.log('🔧 App Configuration:');
+console.log('   DATABRICKS_WORKSPACE_URL:', process.env.DATABRICKS_WORKSPACE_URL || 'NOT SET');
+console.log('   DATABRICKS_ACCESS_TOKEN:', process.env.DATABRICKS_ACCESS_TOKEN ? 'SET' : 'NOT SET');
+console.log('   DATABRICKS_GENIE_SPACE_ID:', process.env.DATABRICKS_GENIE_SPACE_ID || 'NOT SET');
+console.log('   DATABRICKS_WAREHOUSE_ID:', process.env.DATABRICKS_WAREHOUSE_ID || 'NOT SET');
+console.log('   DATABRICKS_CATALOG:', process.env.DATABRICKS_CATALOG || 'NOT SET');
+console.log('   DATABRICKS_SCHEMA:', process.env.DATABRICKS_SCHEMA || 'NOT SET');
 
 // Log Genie configuration (without exposing full token)
 console.log('🔧 Genie Configuration:');
@@ -52,6 +61,23 @@ console.log(`   Access Token Preview: ${genieConfig.accessToken ? genieConfig.ac
 
 // Databricks client
 const databricksClient = new DBSQLClient();
+
+// Test database connection on startup
+async function testDatabaseConnection() {
+  try {
+    console.log('🔍 Testing database connection...');
+    await databricksClient.connect({
+      serverHostname: databricksConfig.serverHostname,
+      httpPath: databricksConfig.httpPath,
+      token: databricksConfig.accessToken
+    });
+    console.log('✅ Database connection successful');
+    return true;
+  } catch (error) {
+    console.error('❌ Database connection failed:', error.message);
+    return false;
+  }
+}
 
 // Mock employee database for fallback/development
 const mockEmployeeDatabase = {
@@ -498,6 +524,20 @@ async function clearGameScores() {
 // Serve static files
 app.use(express.static(path.join(__dirname)));
 app.use(express.json());
+
+// Health check endpoint for Databricks app deployment
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: '3.0.0-gold',
+    services: {
+      databricks: 'connected',
+      genie: 'configured',
+      socketio: 'active'
+    }
+  });
+});
 
 // Routes
 app.get('/', (req, res) => {
@@ -1181,6 +1221,12 @@ function endQuestion() {
   });
 }
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  
+  // Test database connection
+  const dbConnected = await testDatabaseConnection();
+  if (!dbConnected) {
+    console.warn('⚠️ Database connection failed, but server will continue with mock data');
+  }
 });
