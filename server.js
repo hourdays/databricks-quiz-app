@@ -30,7 +30,9 @@ const databricksConfig = {
   accessToken: process.env.DATABRICKS_ACCESS_TOKEN || 'your-access-token',
   catalog: process.env.DATABRICKS_CATALOG || 'hive_metastore',
   schema: process.env.DATABRICKS_SCHEMA || 'default',
-  table: process.env.DATABRICKS_TABLE || 'employees'
+  table: process.env.DATABRICKS_TABLE || 'employees',
+  // New table for storing quiz results
+  resultsTable: process.env.DATABRICKS_RESULTS_TABLE || 'game_scores'
 };
 
 // Databricks client
@@ -145,6 +147,124 @@ function validateWithMockDatabase(email, monthYear) {
   
   console.log(`Mock validation successful for ${email}`);
   return true;
+}
+
+// Function to save quiz results to Databricks
+async function saveQuizResults(gameId, results) {
+  console.log(`Saving quiz results for game ${gameId}:`, results);
+  
+  try {
+    // Connect to Databricks
+    const connection = await databricksClient.connect({
+      host: databricksConfig.serverHostname,
+      path: databricksConfig.httpPath,
+      token: databricksConfig.accessToken
+    });
+
+    const session = await connection.openSession();
+
+    // Create the results table if it doesn't exist
+    const createTableQuery = `
+      CREATE TABLE IF NOT EXISTS ${databricksConfig.catalog}.${databricksConfig.schema}.${databricksConfig.resultsTable} (
+        game_id STRING,
+        player_email STRING,
+        player_answer STRING,
+        answer_time DOUBLE,
+        score DOUBLE,
+        rank INT,
+        is_correct BOOLEAN,
+        game_timestamp TIMESTAMP,
+        created_at TIMESTAMP
+      ) USING DELTA
+    `;
+    
+    await session.executeStatement(createTableQuery);
+    console.log('Results table created/verified successfully');
+
+    // Insert each result
+    for (const result of results) {
+      const insertQuery = `
+        INSERT INTO ${databricksConfig.catalog}.${databricksConfig.schema}.${databricksConfig.resultsTable} 
+        (game_id, player_email, player_answer, answer_time, score, rank, is_correct, game_timestamp, created_at)
+        VALUES (
+          '${gameId}',
+          '${result.email}',
+          '${result.answer}',
+          ${result.answerTime || 0},
+          ${result.score || 0},
+          ${result.rank || 0},
+          ${result.isCorrect || false},
+          '${new Date().toISOString()}',
+          '${new Date().toISOString()}'
+        )
+      `;
+      
+      await session.executeStatement(insertQuery);
+      console.log(`Saved result for ${result.email}: ${result.answer} (${result.answerTime}s, score: ${result.score})`);
+    }
+
+    await session.close();
+    await connection.close();
+    
+    console.log(`Successfully saved ${results.length} quiz results to Databricks`);
+    return true;
+    
+  } catch (error) {
+    console.error('Error saving quiz results to Databricks:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState
+    });
+    
+    // Don't fail the game if logging fails
+    console.log('Continuing game despite logging error');
+    return false;
+  }
+}
+
+// Function to clear game_scores table
+async function clearGameScores() {
+  console.log('Clearing game_scores table...');
+  
+  try {
+    // Connect to Databricks
+    const connection = await databricksClient.connect({
+      host: databricksConfig.serverHostname,
+      path: databricksConfig.httpPath,
+      token: databricksConfig.accessToken
+    });
+
+    const session = await connection.openSession();
+
+    // Clear the game_scores table
+    const clearTableQuery = `
+      DELETE FROM ${databricksConfig.catalog}.${databricksConfig.schema}.${databricksConfig.resultsTable}
+      WHERE game_id = 'espresso'
+    `;
+    
+    await session.executeStatement(clearTableQuery);
+    console.log('Successfully cleared game_scores table');
+
+    await session.close();
+    await connection.close();
+    
+    return true;
+    
+  } catch (error) {
+    console.error('Error clearing game_scores table:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState
+    });
+    
+    // Don't fail the reset if clearing fails
+    console.log('Continuing reset despite clearing error');
+    return false;
+  }
 }
 
 // Serve static files
@@ -473,6 +593,45 @@ io.on('connection', (socket) => {
     io.emit('game-reset');
   });
 
+  socket.on('new-game', async (data) => {
+    const { token, playerEmail } = data;
+    if (activeTokens.has(token) && playerEmail === 'hugues.journeau@databricks.com') {
+      console.log('Admin initiated new game - clearing all data');
+      
+      // Clear game_scores table
+      await clearGameScores();
+      
+      // Reset game state
+      gameState.isStarted = false;
+      gameState.currentPhase = 'waiting';
+      gameState.currentQuestion = 0;
+      gameState.photoTimeLeft = 10;
+      gameState.questionTimeLeft = 10;
+      gameState.players.clear();
+      gameState.leaderboard = [];
+      
+      // Clear all active tokens
+      activeTokens.clear();
+      
+      // Clear timers
+      if (photoTimer) {
+        clearInterval(photoTimer);
+        photoTimer = null;
+      }
+      if (questionTimer) {
+        clearInterval(questionTimer);
+        questionTimer = null;
+      }
+      
+      // Notify all clients to redirect to landing page
+      io.emit('game-reset');
+      
+      console.log('New game initiated - all data cleared');
+    } else {
+      socket.emit('new-game-error', { message: 'Only admin can start a new game' });
+    }
+  });
+
   socket.on('request-leaderboard', () => {
     console.log('Leaderboard requested, sending:', gameState.leaderboard);
     socket.emit('leaderboard-update', { leaderboard: gameState.leaderboard });
@@ -542,10 +701,23 @@ function startQuestionPhase() {
 }
 
 function endQuestion() {
+  // Simple game ID
+  const gameId = 'espresso';
+  console.log('Game ID:', gameId);
+  
   // Calculate scores
   const correctAnswer = 'echantons'; // Fixed correct answer
   console.log('Correct answer is:', correctAnswer);
   let correctPlayers = [];
+  
+  // Store answers before clearing them
+  const playerAnswers = new Map();
+  gameState.players.forEach((player, playerKey) => {
+    playerAnswers.set(player.name, {
+      answer: player.currentAnswer,
+      answerTime: player.answerTime
+    });
+  });
   
   gameState.players.forEach((player, playerKey) => {
     console.log(`Player ${player.name} answered: ${player.currentAnswer}, time: ${player.answerTime}`);
@@ -609,6 +781,28 @@ function endQuestion() {
   });
   
   console.log('Final leaderboard being sent:', gameState.leaderboard);
+  
+  // Prepare results for Databricks logging
+  const resultsToSave = [];
+  gameState.players.forEach((player, playerKey) => {
+    const leaderboardEntry = gameState.leaderboard.find(p => p.name === player.name);
+    const rank = gameState.leaderboard.findIndex(p => p.name === player.name) + 1;
+    const storedAnswer = playerAnswers.get(player.name);
+    
+    resultsToSave.push({
+      email: player.name,
+      answer: storedAnswer?.answer || 'timeout',
+      answerTime: storedAnswer?.answerTime || (gameState.questionEndTime ? (gameState.questionEndTime - gameState.questionStartTime) / 1000 : 0),
+      score: leaderboardEntry?.score || 0,
+      rank: rank,
+      isCorrect: storedAnswer?.answer === correctAnswer
+    });
+  });
+  
+  // Save results to Databricks (async, don't wait)
+  saveQuizResults(gameId, resultsToSave).catch(error => {
+    console.error('Failed to save quiz results:', error);
+  });
   
   // Send different events based on user type
   // Admin gets the full leaderboard with controls

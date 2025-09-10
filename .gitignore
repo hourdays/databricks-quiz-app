@@ -182,3 +182,7 @@ Thumbs.db
 
 # Test files
 test-images.html
+
+# Local development scripts with credentials
+start-local.sh
+query-results.js

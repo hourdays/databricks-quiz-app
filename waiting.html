@@ -52,6 +52,9 @@
                     <button id="startGameBtn" class="btn btn-primary btn-large">
                         Start Game
                     </button>
+                    <button id="newGameBtn" class="btn btn-secondary btn-large">
+                        New Game
+                    </button>
                     <p class="admin-note">Only admin can start the game</p>
                 </div>
                 
@@ -80,6 +83,7 @@
         const adminControls = document.getElementById('adminControls');
         const gameStatus = document.getElementById('gameStatus');
         const startGameBtn = document.getElementById('startGameBtn');
+        const newGameBtn = document.getElementById('newGameBtn');
         const errorMessage = document.getElementById('errorMessage');
         const welcomeMessage = document.getElementById('welcomeMessage');
         const playerNameSpan = document.getElementById('playerName');
@@ -247,8 +251,23 @@
             }
         });
 
+        // New game button
+        newGameBtn.addEventListener('click', () => {
+            if (currentToken) {
+                socket.emit('new-game', { 
+                    token: currentToken, 
+                    playerEmail: playerName 
+                });
+            }
+        });
+
         // Handle start game error
         socket.on('start-game-error', (data) => {
+            showError(data.message);
+        });
+
+        // Handle new game error
+        socket.on('new-game-error', (data) => {
             showError(data.message);
         });
 

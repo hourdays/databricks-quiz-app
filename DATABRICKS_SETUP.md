@@ -19,18 +19,23 @@ export DATABRICKS_CATALOG=your-catalog
 export DATABRICKS_SCHEMA=your-schema
 export DATABRICKS_TABLE=your-table
 
+# Your Databricks results table name (e.g., game_scores)
+export DATABRICKS_RESULTS_TABLE=your-results-table
+
 # Server port (optional, defaults to 3000)
 export PORT=3000
 ```
 
-## Table Schema
+## Table Schemas
 
-Your Databricks table should have the following columns:
+### Employee Table
+
+Your Databricks employee table should have the following columns:
 
 ```sql
 CREATE TABLE employees (
   email STRING,
-  start_month_year STRING
+  databricks_arrival_month_year STRING
 );
 ```
 
@@ -41,6 +46,26 @@ INSERT INTO employees VALUES
   ('marc.bonnet@databricks.com', 'juin 2025'),
   ('john.doe@databricks.com', 'mars 2021');
 ```
+
+### Results Table
+
+The quiz results will be automatically saved to a results table with the following schema:
+
+```sql
+CREATE TABLE game_scores (
+  game_id STRING,
+  player_email STRING,
+  player_answer STRING,
+  answer_time DOUBLE,
+  score DOUBLE,
+  rank INT,
+  is_correct BOOLEAN,
+  game_timestamp TIMESTAMP,
+  created_at TIMESTAMP
+) USING DELTA;
+```
+
+The results table will be created automatically if it doesn't exist. All quiz games will use the game ID "espresso" and all player responses will be logged with their scores, ranks, and timing information.
 
 ## Getting Your Databricks Credentials
 
